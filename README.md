@@ -23,6 +23,7 @@ Create a `.env.development.local` file based on `.env.example`:
 ```
 PORT = 8080
 MONGODB_URI = your mongo connection string
+CLIENT_URL = http://localhost:3000
 ```
 
 Run the dev server:
