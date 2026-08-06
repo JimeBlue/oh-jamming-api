@@ -17,6 +17,9 @@ const authLimiter = rateLimit({
   // treat a whole IPv6 /56 as one client — a single subscriber is typically handed that much
   // address space and could otherwise just rotate through it
   ipv6Subnet: 56,
+  // only failed attempts count. A guesser fails by definition, so brute-force protection is
+  // unchanged, but someone logging in and out for real never eats into the quota.
+  skipSuccessfulRequests: true,
   // matches the { message } shape everything else in the API returns
   message: { message: 'Too many attempts. Try again later.' },
 });

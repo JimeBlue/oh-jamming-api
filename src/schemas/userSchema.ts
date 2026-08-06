@@ -42,11 +42,22 @@ export const userInputSchema = userFields.superRefine(instrumentsMatchRole);
 export type UserInput = z.infer<typeof userInputSchema>;
 
 
+// role is deliberately not updatable — POST /users is the only place it is ever set.
+//
+// Letting it change here would be privilege escalation (a musician granting themselves the right
+// to create jam sessions), it would orphan the JamSessions and Bookings that reference a user by
+// role, and it would leave the 15-minute access token disagreeing with the database about who the
+// user is until the next refresh. Switching roles is a new account, not an edit.
+//
+// Note there is no instrumentsMatchRole here, unlike userInputSchema: with role absent from the
+// body, zod has nothing to compare instrumentsPlayed against. A venue sending instrumentsPlayed
+// is caught one layer down instead — the path is modified, so mongoose runs the schema validator
+// with `this` bound to the stored document, which does know the role. Same message, same 400.
 export const updateUserSchema = userFields
+  .omit({ role: true })
   .partial()
   // an empty body would be a no-op update, so it's rejected rather than silently accepted
-  .refine((update) => Object.keys(update).length > 0, 'at least one field is required')
-  .superRefine(instrumentsMatchRole);
+  .refine((update) => Object.keys(update).length > 0, 'at least one field is required');
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 
