@@ -34,6 +34,11 @@ const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
       statusCode = 409;
       const [duplicatedField] = Object.keys(('keyValue' in err && err.keyValue) || {});
       message = duplicatedField ? `${duplicatedField} already in use` : 'Duplicate value';
+      // nothing matched, so this is an unanticipated bug rather than an error meant for the client.
+      // Its message could name internal paths or fields, so the client gets the generic 500 text —
+      // the real message is still in the dev console log above.
+    } else {
+      message = 'Internal server error';
     }
   }
 
