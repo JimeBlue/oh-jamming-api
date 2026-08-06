@@ -1,9 +1,10 @@
 import type { ErrorRequestHandler } from 'express';
 import { Error as MongooseError } from 'mongoose';
+import { isProduction } from '#config';
 
 const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   // console log only runs in dev, to avoid spamming production logs or leaking server internals
-  process.env.NODE_ENV !== 'production' && console.log(`\x1b[31m${err.stack}\x1b[0m`);
+  !isProduction && console.log(`\x1b[31m${err.stack}\x1b[0m`);
 
   let statusCode = 500;
   let message = 'Internal server error';

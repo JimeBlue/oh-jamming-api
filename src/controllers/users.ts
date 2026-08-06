@@ -1,8 +1,11 @@
 import type { RequestHandler } from 'express';
 import type { z } from 'zod';
+import RefreshToken from '#models/RefreshToken';
 import User from '#models/User';
 import type { IdParams } from '#schemas/idParamSchema';
 import { type UpdateUserInput, type userInputSchema, userOutputSchema } from '#schemas/userSchema';
+import { clearAuthCookies } from '#utils/cookies';
+import { issueSession } from '#utils/session';
 
 
 type UserInputDTO = z.input<typeof userInputSchema>;
@@ -34,7 +37,13 @@ export const createUser: RequestHandler<unknown, UserOutputDTO, UserInputDTO> = 
 
   // User.create() runs the pre('save') hook, so the password is hashed on the way in
   const user = await User.create(req.body satisfies UserInputDTO);
-  res.status(201).json(userOutputSchema.parse(user));
+
+  // this endpoint *is* register, so a successful create logs the new user straight in rather than
+  // making the client turn around and call /auth/login with the credentials it just sent
+  const newUser = userOutputSchema.parse(user);
+  await issueSession(res, { userId: newUser.id, role: newUser.role });
+
+  res.status(201).json(newUser);
 };
 
 
@@ -64,6 +73,13 @@ export const deleteUser: RequestHandler<IdParams, { message: string }> = async (
   const user = await User.findByIdAndDelete(id);
 
   if (!user) throw new Error('User not found', { cause: { status: 404 } });
+
+  // the sessions outlive the account otherwise — refresh would still 401 (it looks the user up),
+  // but the rows would sit there until the 30-day TTL swept them
+  await RefreshToken.deleteMany({ userId: id });
+
+  // requireSelf guarantees this is the caller's own account, so deleting it logs them out
+  clearAuthCookies(res);
 
   res.json({ message: 'User deleted' });
 };
