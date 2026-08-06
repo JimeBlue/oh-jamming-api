@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import User from '#models/User';
 import type { IdParams } from '#schemas/idParamSchema';
 import { type UpdateUserInput, type userInputSchema, userOutputSchema } from '#schemas/userSchema';
+import { issueSession } from '#utils/session';
 
 
 type UserInputDTO = z.input<typeof userInputSchema>;
@@ -34,7 +35,13 @@ export const createUser: RequestHandler<unknown, UserOutputDTO, UserInputDTO> = 
 
   // User.create() runs the pre('save') hook, so the password is hashed on the way in
   const user = await User.create(req.body satisfies UserInputDTO);
-  res.status(201).json(userOutputSchema.parse(user));
+
+  // this endpoint *is* register, so a successful create logs the new user straight in rather than
+  // making the client turn around and call /auth/login with the credentials it just sent
+  const newUser = userOutputSchema.parse(user);
+  await issueSession(res, { userId: newUser.id, role: newUser.role });
+
+  res.status(201).json(newUser);
 };
 
 
