@@ -32,7 +32,11 @@ export const userInputSchema = userFields.superRefine(instrumentsMatchRole);
 export type UserInput = z.infer<typeof userInputSchema>;
 
 
-export const updateUserSchema = userFields.partial().superRefine(instrumentsMatchRole);
+export const updateUserSchema = userFields
+  .partial()
+  // an empty body would be a no-op update, so it's rejected rather than silently accepted
+  .refine((update) => Object.keys(update).length > 0, 'at least one field is required')
+  .superRefine(instrumentsMatchRole);
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 

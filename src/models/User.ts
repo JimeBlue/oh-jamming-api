@@ -33,6 +33,9 @@ const UserSchema = new Schema(
       type: String,
       required: [true, 'password is required'],
       // no minLength here on purpose — see the note on the hook below
+      // left out of every query result so the hash can't leak through a stray res.json(user) or a
+      // populate(). Login is the only place that needs it, via .select('+password')
+      select: false,
     },
     role: {
       type: String,
