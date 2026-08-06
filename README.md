@@ -89,6 +89,10 @@ user out. Refresh **rotates**: the old token is marked revoked and a new pair is
 revoked token is ever presented again, every session for that user is destroyed — a replayed
 token means someone has a copy.
 
+Logging out deletes the refresh token and clears both cookies. The access token itself stays valid
+until it expires — a signed JWT cannot be revoked — so a copy captured before logout would still
+work for up to 15 minutes. That short lifetime is the mitigation.
+
 Roles are enforced server-side with `requireRole('venue')` / `requireRole('musician')`, never only
 in the client. `role` is fixed at registration and cannot be changed through `PUT /users/:id`.
 
