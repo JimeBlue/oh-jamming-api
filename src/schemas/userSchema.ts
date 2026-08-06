@@ -6,7 +6,12 @@ export const userRoles = ['venue', 'musician'] as const;
 const userFields = z.strictObject({
   firstName: z.string().min(2, 'min length is 2 chars').max(255, 'max length is 255 chars'),
   lastName: z.string().min(2, 'min length is 2 chars').max(255, 'max length is 255 chars'),
-  email: z.email('must be a valid email address').min(5, 'min length is 5 chars'),
+  // trimmed before the email check, not after — zod runs before mongoose, so the model's `trim: true`
+  // would never see a value that zod had already rejected for the surrounding whitespace
+  email: z
+    .string()
+    .trim()
+    .pipe(z.email('must be a valid email address').min(5, 'min length is 5 chars')),
 
   password: z.string().min(8, 'min length is 8 chars'),
   role: z.enum(userRoles, 'role must be either venue or musician'),

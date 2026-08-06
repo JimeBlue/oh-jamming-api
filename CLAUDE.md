@@ -19,7 +19,7 @@ There is no test runner and no linter configured in this repo. Type checking hap
 Node runs the TypeScript sources directly via native type stripping. There is no tsx, ts-node, or nodemon. Three consequences:
 
 - **Relative imports must carry the explicit `.ts` extension** (`import connectDB from './db/index.ts'`). `allowImportingTsExtensions` permits it and `rewriteRelativeImportExtensions` turns it into `.js` at build time.
-- **`#*` subpath imports** are declared in `package.json` and mirrored in `tsconfig.json` `paths`. `#models/User.ts` resolves to `./src/models/User.ts` under the `development` condition and `./dist/models/User.js` otherwise. `npm run dev` passes `--conditions development` to select the first branch; `npm start` gets the `default`. Note that `app.ts` currently uses a plain relative import instead — either style works.
+- **`#*` subpath imports** are declared in `package.json` and mirrored in `tsconfig.json` `paths`. `#models/User` resolves to `./src/models/User.ts` under the `development` condition and `./dist/models/User.js` otherwise. `npm run dev` passes `--conditions development` to select the first branch; `npm start` gets the `default`. Convention: `app.ts` uses relative imports, everything under `src/` uses `#` aliases.
 - `verbatimModuleSyntax` is on, so type-only imports must be written as `import type { ... }`.
 
 Strictness is high: `strict`, plus `noUncheckedIndexedAccess` (indexing an array yields `T | undefined`) and `noImplicitOverride`.
@@ -32,13 +32,87 @@ Strictness is high: `strict`, plus `noUncheckedIndexedAccess` (indexing an array
 
 CORS is an explicit origin allowlist built from `process.env.CLIENT_URL` plus `http://localhost:3000`, with `credentials: true`. A wildcard origin is incompatible with credentials by spec, so the allowlist must stay explicit for the auth cookies to work.
 
-### Data model 
+There is no service layer. A request flows: **route → `validateParams`/`validateBody` (Zod) → controller → model**, and any error thrown along the way lands in `errorHandler`.
 
-Three collections, per the project's design docs:
+Mounting order in `app.ts` matters and must be preserved: routes, then `notFoundHandler`, then `errorHandler`, then `connectDB()`, then `listen()`.
 
-- **Users** — `firstName`, `lastName`, `email`, `passwordHash`, `role: "venue" | "musician"` (exactly one role per account), `instrumentsPlayed` (musicians only).
-- **JamSessions** — owned by a venue. `instrumentTemplate: [{ instrument, spotsTotal }]` is what the venue's form sets; at creation it is expanded into the embedded `slots[].spots[]` array of individually labelled, individually bookable spots (`{ spotId, instrument, label, bookingId }`). `bookingId` is `null` while the spot is free.
-- **Bookings** — **one document per claimed spot**. A band claiming several spots in one submission produces several documents sharing a `groupId`; the UI regroups by `groupId`. Cancelling sets `status: "cancelled"` and frees the spot — bookings are never hard-deleted.
+### File naming
+
+One resource per file, named consistently across the layers:
+
+| Layer | File | Export |
+|---|---|---|
+| Model | `models/User.ts` | default `model('User', UserSchema)` |
+| Zod schemas | `schemas/userSchema.ts` | named exports |
+| Controllers | `controllers/users.ts` | named exports, one per handler |
+| Routes | `routes/userRoutes.ts` | default `Router()` |
+| Middleware | `middleware/validateBody.ts` | default export, camelCase |
+
+## Conventions
+
+### Models
+
+Plain `new Schema({ ... }, { timestamps: true })` — no generics, no separate TS interface. Validation messages use the array form: `required: [true, 'firstName is required']`, `minLength: [2, 'min length is 2 chars']`.
+
+Two rules learned from the `User` model:
+
+- **`pre('save')` hooks run BEFORE mongoose validation, not after.** Mongoose's middleware wraps `Model.prototype.save`, and validation runs inside the wrapped body. So a `minLength` on a field a hook rewrites (e.g. a password being hashed) would only ever measure the rewritten value. Put that check in Zod instead.
+- **Secrets get `select: false`.** `User.password` is excluded from every query result unless a query asks with `.select('+password')`. Note this filters *query results only* — a document you just created still holds the value in memory, which is why responses also go through an output schema.
+
+### Validation
+
+Zod owns request validation; mongoose validators are the DB-layer safety net, and both express the same rule. **Zod runs first**, so any normalisation the client should benefit from (trimming, coercion) must live in the Zod schema — a `trim: true` in the model never sees a value Zod already rejected.
+
+Each `schemas/xSchema.ts` exports three schemas plus inferred types:
+
+- **`xInputSchema`** — `z.strictObject`, so unknown keys are a 400 rather than silently dropped.
+- **`updateXSchema`** — `xInputSchema.partial()`, refined to reject an empty body (`at least one field is required`).
+- **`xOutputSchema`** — shapes the response: adds `id`, omits secrets, reuses field rules via `.shape`.
+
+Cross-field rules use `.superRefine()` with an explicit `path` so the issue attaches to the right field. A refined schema no longer exposes `.shape` or `.partial()`, so keep the raw fields in a private base object (`userFields`) and build all three exports from it.
+
+### Controllers
+
+No try/catch — errors are thrown and formatted centrally. Throw with a status on the cause:
+
+```ts
+throw new Error('User not found', { cause: { status: 404 } });
+```
+
+Handlers are typed `RequestHandler<Params, ResBody, ReqBody>`, with DTOs derived from the Zod schemas rather than hand-written:
+
+```ts
+type UserInputDTO = z.input<typeof userInputSchema>;
+type UserOutputDTO = z.infer<typeof userOutputSchema>;
+```
+
+Every response goes through `xOutputSchema.parse()`. This is what guarantees secrets never ship, since `select: false` doesn't cover freshly created documents.
+
+Uniqueness is checked at the app layer for a friendly `409` (`User.findOne({ email })`), with the unique index as the actual guarantee — `errorHandler` maps the `E11000` race to the same `409`.
+
+**Updates must use `findById` + `set` + `save()`, never `findByIdAndUpdate`.** That method bypasses document middleware, so the `pre('save')` hook never fires (a new password would be stored in plaintext) and document validators are skipped — and even with `runValidators: true`, `this` is the query rather than the document, so cross-field validators can't read sibling values.
+
+### Error handling
+
+`errorHandler` resolves the status in this order:
+
+| Condition | Status |
+|---|---|
+| `err.cause.status` (errors we throw) | as given |
+| `err.status` (e.g. body-parser's `SyntaxError`) | as given |
+| mongoose `ValidationError` | 400, field messages joined |
+| mongoose `CastError` | 400 |
+| `err.code === 11000` | 409, field read from `err.keyValue` |
+| anything else | 500, message replaced with `Internal server error` |
+
+Only the final branch hides the message — everything above it was written for the client. The full stack is logged to the console in dev only.
+
+### Data model decisions
+
+`README.md` lists the three collections; the models themselves are the source of truth for fields. What isn't visible in either, and must not be reinvented:
+
+- **JamSessions** (not yet built) — `instrumentTemplate: [{ instrument, spotsTotal }]` is what the venue's form sets. At creation it is expanded into the embedded `slots[].spots[]` array of individually labelled, individually bookable spots (`{ spotId, instrument, label, bookingId }`), with `bookingId` null while a spot is free. Availability is per spot, not a counter.
+- **Bookings** (not yet built) — **one document per claimed spot.** A band claiming several spots in one submission produces several documents sharing a `groupId`; the UI regroups by `groupId`. Cancelling sets `status: "cancelled"` and frees the spot — bookings are never hard-deleted.
 
 Two invariants the implementation must preserve:
 
@@ -50,4 +124,3 @@ Two invariants the implementation must preserve:
 Live at `https://oh-jamming-api.onrender.com`; the Next.js client is a separate repo and separate Render web service.
 
 - Build `npm install && npm run build`, start `npm start`. Env vars: `MONGODB_URI`, `CLIENT_URL`. Do not set `PORT` — Render injects it.
-
