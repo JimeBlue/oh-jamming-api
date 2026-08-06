@@ -2,6 +2,9 @@ import cors from 'cors';
 import express from 'express';
 import mongoose from 'mongoose';
 import connectDB from './db/index.ts';
+import errorHandler from './middleware/errorHandler.ts';
+import notFoundHandler from './middleware/notFoundHandler.ts';
+import userRoutes from './routes/userRoutes.ts';
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -27,7 +30,12 @@ app.get('/health', (req, res) => {
   });
 });
 
-// routes go here
+app.use('/users', userRoutes);
+
+// both must stay last: notFoundHandler only runs when no route above matched, and errorHandler is
+// the 4-arg middleware every next(err) above ends up in
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 await connectDB();
 
