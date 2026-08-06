@@ -1,13 +1,21 @@
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
+import helmet from 'helmet';
 import mongoose from 'mongoose';
 import { CLIENT_URL, PORT } from './config.ts';
 import connectDB from './db/index.ts';
 import errorHandler from './middleware/errorHandler.ts';
 import notFoundHandler from './middleware/notFoundHandler.ts';
+import authRoutes from './routes/authRoutes.ts';
 import userRoutes from './routes/userRoutes.ts';
 
 const app = express();
+
+// Render terminates TLS at its proxy and forwards over http, so without this express sees every
+// request as insecure and coming from the proxy's IP: `secure` cookies would be refused and the
+// rate limiter would count all users as one client. 1 = trust exactly one proxy hop.
+app.set('trust proxy', 1);
 
 // the deployed client plus local dev; credentials are needed for the auth cookies
 const allowedOrigins = [CLIENT_URL, 'http://localhost:3000'].filter(
@@ -15,8 +23,19 @@ const allowedOrigins = [CLIENT_URL, 'http://localhost:3000'].filter(
 );
 
 // middleware
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(helmet());
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+    // the browser hides response headers from JS unless they're listed here, and the client needs
+    // to read this one to tell an expired access token apart from a dead session
+    exposedHeaders: ['WWW-Authenticate'],
+  })
+);
 app.use(express.json());
+// populates req.cookies — authenticate and the refresh/logout handlers read the tokens from there
+app.use(cookieParser());
 
 app.get('/', (req, res) => {
   res.json({ status: 'ok' });
@@ -30,6 +49,7 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 
 // both must stay last: notFoundHandler only runs when no route above matched, and errorHandler is
