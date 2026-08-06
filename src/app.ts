@@ -1,16 +1,16 @@
 import cors from 'cors';
 import express from 'express';
 import mongoose from 'mongoose';
+import { CLIENT_URL, PORT } from './config.ts';
 import connectDB from './db/index.ts';
 import errorHandler from './middleware/errorHandler.ts';
 import notFoundHandler from './middleware/notFoundHandler.ts';
 import userRoutes from './routes/userRoutes.ts';
 
 const app = express();
-const port = process.env.PORT || 8080;
 
 // the deployed client plus local dev; credentials are needed for the auth cookies
-const allowedOrigins = [process.env.CLIENT_URL, 'http://localhost:3000'].filter(
+const allowedOrigins = [CLIENT_URL, 'http://localhost:3000'].filter(
   (origin): origin is string => Boolean(origin)
 );
 
@@ -39,6 +39,6 @@ app.use(errorHandler);
 
 await connectDB();
 
-app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
 });

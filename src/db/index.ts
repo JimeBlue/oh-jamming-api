@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { MONGODB_URI } from '#config';
 
 // global config so every model's JSON output uses `id` instead of `_id` 
 mongoose.set('toJSON', {
@@ -8,13 +9,9 @@ mongoose.set('toJSON', {
   },
 });
 
+// the URI is validated in #config, so there's nothing left to check here
 const connectDB = async () => {
-  const mongoUri = process.env.MONGODB_URI;
-  if (!mongoUri) {
-    throw new Error('Missing MONGODB_URI environment variable');
-  }
-
-  const conn = await mongoose.connect(mongoUri);
+  const conn = await mongoose.connect(MONGODB_URI);
   console.log(`MongoDB connected successfully: ${conn.connection.name}`);
 };
 
