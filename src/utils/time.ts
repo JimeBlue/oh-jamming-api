@@ -23,6 +23,16 @@ export const timeToMinutes = (time: string): number => {
   return Number(hours) * 60 + Number(minutes);
 };
 
+// minutes since midnight -> "HH:mm". The inverse of `timeToMinutes`, used when generating slot
+// boundaries. Never has to render "24:00": the latest time the schemas accept is 23:59, so a slot
+// cannot end past the end of the day.
+export const minutesToTime = (totalMinutes: number): string => {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
 // built once at module load — constructing an Intl formatter is comparatively expensive, and this
 // one never varies
 const appTimeFormatter = new Intl.DateTimeFormat('en-CA', {
