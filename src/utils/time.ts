@@ -73,3 +73,9 @@ export const nowInAppTimezone = (): { date: string; time: string } => {
 // Invalid Date; it silently rolls over to March 2nd. Calendar validity is checked by `z.iso.date()`
 // before a value ever reaches here.
 export const dateStringToUtcMidnight = (date: string): Date => new Date(`${date}T00:00:00.000Z`);
+
+// the inverse. Needed when an update has to be re-validated: the schemas speak "YYYY-MM-DD", the
+// stored document holds a Date, and checking a partial update against the rules means putting the
+// two back together in one shape. Exact rather than approximate, because the stored value is always
+// midnight UTC — there is no local-time rounding to get wrong.
+export const utcMidnightToDateString = (date: Date): string => date.toISOString().slice(0, 10);

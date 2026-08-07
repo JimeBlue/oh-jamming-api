@@ -1,5 +1,5 @@
 import type { RequestHandler } from 'express';
-import type { z } from 'zod';
+import { z } from 'zod';
 import JamSession from '#models/JamSession';
 import User from '#models/User';
 import type { IdParams } from '#schemas/idParamSchema';
@@ -7,11 +7,12 @@ import {
   ALL_GENRES,
   ALL_LEVELS,
   type JamSessionQuery,
-  type jamSessionInputSchema,
+  type UpdateJamSessionInput,
+  jamSessionInputSchema,
   jamSessionOutputSchema,
 } from '#schemas/jamSessionSchema';
 import { generateSlots } from '#utils/slots';
-import { dateStringToUtcMidnight, nowInAppTimezone } from '#utils/time';
+import { dateStringToUtcMidnight, nowInAppTimezone, utcMidnightToDateString } from '#utils/time';
 
 // `z.infer` rather than `z.input`: by the time a controller runs, validateBody has already replaced
 // req.body with the parsed result, so what arrives here is the schema's output — trimmed strings
@@ -113,4 +114,158 @@ export const createJamSession: RequestHandler<
   });
 
   res.status(201).json(jamSessionOutputSchema.parse(jamSession));
+};
+
+// JS02 — ownership is checked here rather than in a middleware, and the asymmetry with `requireSelf`
+// is deliberate. `requireSelf` can be middleware because the answer is already in the URL: compare
+// `req.user.userId` to `req.params.id` and you are done. Ownership of a *resource* isn't in the URL,
+// so a middleware version would have to load the same document the controller is about to load,
+// purely to answer the question — two round trips for one answer.
+//
+// The 404 comes before the 403 on purpose. Ordering them the other way hides whether a session
+// exists, which matters when existence is a secret. Here it isn't: the browse is public, so anyone
+// can already discover every session id. A plain "not found" is the more useful answer.
+const findOwnedJamSession = async (id: string, userId: string | undefined) => {
+  if (!userId) throw new Error('Not authenticated', { cause: { status: 401 } });
+
+  const jamSession = await JamSession.findById(id);
+
+  if (!jamSession) throw new Error('Jam session not found', { cause: { status: 404 } });
+
+  if (String(jamSession.venueId) !== userId) {
+    throw new Error('You can only modify your own jam sessions', { cause: { status: 403 } });
+  }
+
+  return jamSession;
+};
+
+// JS10 — changing any of these once a spot is booked would break the premise the musician booked
+// on. `date` is in the list even though it doesn't shape the slots: someone who booked a Tuesday
+// did not agree to a Friday.
+const FROZEN_ONCE_BOOKED = [
+  'date',
+  'startTime',
+  'endTime',
+  'slotDurationMinutes',
+  'instrumentTemplate',
+] as const satisfies readonly (keyof UpdateJamSessionInput)[];
+
+// The subset that actually changes the generated slots, which is why `date` is absent — slots carry
+// times, not dates, so moving a session to another day leaves its 19:00 slot at 19:00.
+const RESHAPES_SLOTS = [
+  'startTime',
+  'endTime',
+  'slotDurationMinutes',
+  'instrumentTemplate',
+] as const satisfies readonly (keyof UpdateJamSessionInput)[];
+
+const touches = (
+  update: UpdateJamSessionInput,
+  fields: readonly (keyof UpdateJamSessionInput)[],
+): boolean => fields.some((field) => update[field] !== undefined);
+
+export const updateJamSession: RequestHandler<
+  IdParams,
+  JamSessionOutputDTO,
+  UpdateJamSessionInput
+> = async (req, res) => {
+  const { id } = req.params;
+  const update = req.body;
+
+  const jamSession = await findOwnedJamSession(id, req.user?.userId);
+
+  // A cancelled session is a tombstone — musicians whose bookings pointed at it still need to see
+  // why it is gone. Editing one has no meaning, and refusing here also closes the only route that
+  // could otherwise look like un-cancelling.
+  if (jamSession.status === 'cancelled') {
+    throw new Error('A cancelled jam session cannot be edited', { cause: { status: 409 } });
+  }
+
+  const changesShape = touches(update, FROZEN_ONCE_BOOKED);
+  const hasBookings = jamSession.slots.some((slot) =>
+    slot.spots.some((spot) => spot.bookingId !== null),
+  );
+
+  // JS10 — the message names what is frozen rather than just refusing, because from the venue's side
+  // "I can't edit my own session" is otherwise indistinguishable from a bug
+  if (changesShape && hasBookings) {
+    throw new Error(
+      'This jam session already has bookings, so its date, times and line-up can no longer be changed',
+      { cause: { status: 409 } },
+    );
+  }
+
+  // The cross-field rules — JS05, JS06, JS07 — cannot run on a partial body, because the sibling
+  // field they compare against usually isn't in it. `{ slotDurationMinutes: 45 }` says nothing about
+  // whether the window still divides evenly. So the update is merged over the stored document and
+  // the *whole* shape is re-validated, which is the only point at which the answer is knowable.
+  //
+  // Only when a shape field actually changed: re-validating a title edit would re-run the
+  // past-date rule and reject an edit to a session happening tonight.
+  let merged;
+
+  if (changesShape) {
+    // toObject() first — the sub-documents are mongoose Documents, and handing one to a strictObject
+    // schema fails on the eighty internal properties it carries
+    const stored = jamSession.toObject();
+
+    const candidate = {
+      title: stored.title,
+      summary: stored.summary,
+      date: utcMidnightToDateString(stored.date),
+      startTime: stored.startTime,
+      endTime: stored.endTime,
+      venueName: stored.venueName,
+      address: stored.address,
+      overview: stored.overview,
+      slotDurationMinutes: stored.slotDurationMinutes,
+      instrumentTemplate: stored.instrumentTemplate,
+      genres: stored.genres,
+      skillLevel: stored.skillLevel,
+      ...update,
+    };
+
+    const revalidated = jamSessionInputSchema.safeParse(candidate);
+
+    if (!revalidated.success) {
+      throw new Error(z.prettifyError(revalidated.error), { cause: { status: 400 } });
+    }
+
+    merged = revalidated.data;
+  }
+
+  jamSession.set({
+    ...update,
+    // the string the schemas carry becomes the Date the model stores. Mongoose would cast it on its
+    // own, but leaving that to chance is how a date quietly lands on the wrong day.
+    ...(update.date ? { date: dateStringToUtcMidnight(update.date) } : {}),
+    // regenerated from the merged shape, not from the update — a new slotDurationMinutes has to be
+    // laid out across the *stored* start and end times. Safe to throw the old slots away only
+    // because JS10 has already established that nothing is booked.
+    ...(merged && touches(update, RESHAPES_SLOTS) ? { slots: generateSlots(merged) } : {}),
+  });
+
+  await jamSession.save();
+
+  res.json(jamSessionOutputSchema.parse(jamSession));
+};
+
+// JS11 — cancelling, not deleting. A hard delete would orphan every Booking pointing here and leave
+// holes in musicians' booking histories.
+export const cancelJamSession: RequestHandler<IdParams, JamSessionOutputDTO> = async (req, res) => {
+  const { id } = req.params;
+
+  const jamSession = await findOwnedJamSession(id, req.user?.userId);
+
+  // Idempotent: cancelling an already-cancelled session is the outcome the caller asked for, so it
+  // is not an error. A double-click should not produce a 409.
+  if (jamSession.status !== 'cancelled') {
+    jamSession.set({ status: 'cancelled' });
+    await jamSession.save();
+  }
+
+  // NOTE for the Bookings phase: the spots deliberately keep their bookingIds. Cancelling the
+  // session is the signal; what happens to the bookings underneath it — cancelled in turn,
+  // notified, refunded — is a decision that belongs with the model that owns them.
+  res.json(jamSessionOutputSchema.parse(jamSession));
 };
