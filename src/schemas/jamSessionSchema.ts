@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, isValidObjectId } from 'mongoose';
 import { z } from 'zod';
 import { nowInAppTimezone, timeToMinutes } from '#utils/time';
 
@@ -276,6 +276,38 @@ export const updateJamSessionSchema = jamSessionFields
   .refine((update) => Object.keys(update).length > 0, 'at least one field is required');
 
 export type UpdateJamSessionInput = z.infer<typeof updateJamSessionSchema>;
+
+// ---------------------------------------------------------------------------------------------
+// Query
+// ---------------------------------------------------------------------------------------------
+
+// The browse filters. A strictObject here too, which matters more than it looks: `?genr=jazz` would
+// otherwise be silently ignored and return every session, and a filter that quietly does nothing is
+// a much worse bug than one that says it doesn't recognise the parameter.
+//
+// Every value arrives as a string, so nothing needs coercing — the enums and `z.iso.date()` all
+// parse strings already.
+export const jamSessionQuerySchema = z
+  .strictObject({
+    genre: z.enum(genres, 'unknown genre').optional(),
+    skillLevel: z.enum(skillLevels, 'unknown skill level').optional(),
+
+    // JS12 — omitted means active. Cancelled sessions are still reachable, just never by accident.
+    status: z.enum(jamSessionStatuses, 'unknown status').optional(),
+
+    venueId: z.string().refine(isValidObjectId, 'must be a valid id').optional(),
+
+    // JS13 — `from` omitted means "today onwards". Passing it explicitly is how a venue looks at
+    // its own past nights.
+    from: z.iso.date('must be a date in YYYY-MM-DD format').optional(),
+    to: z.iso.date('must be a date in YYYY-MM-DD format').optional(),
+  })
+  .refine(({ from, to }) => !from || !to || from <= to, {
+    error: 'to must not be earlier than from',
+    path: ['to'],
+  });
+
+export type JamSessionQuery = z.infer<typeof jamSessionQuerySchema>;
 
 // ---------------------------------------------------------------------------------------------
 // Output
