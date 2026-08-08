@@ -1,11 +1,13 @@
 import type { RequestHandler } from 'express';
 import type { z } from 'zod';
+import JamSession from '#models/JamSession';
 import RefreshToken from '#models/RefreshToken';
 import User from '#models/User';
 import type { IdParams } from '#schemas/idParamSchema';
 import { type UpdateUserInput, type userInputSchema, userOutputSchema } from '#schemas/userSchema';
 import { clearAuthCookies } from '#utils/cookies';
 import { issueSession } from '#utils/session';
+import { dateStringToUtcMidnight, nowInAppTimezone } from '#utils/time';
 
 
 type UserInputDTO = z.input<typeof userInputSchema>;
@@ -70,6 +72,31 @@ export const updateUser: RequestHandler<IdParams, UserOutputDTO, UpdateUserInput
 
 export const deleteUser: RequestHandler<IdParams, { message: string }> = async (req, res) => {
   const { id } = req.params;
+
+  // A venue's jam sessions outlive the account that created them: the sessions carry their own
+  // venueName and address, so they would keep rendering perfectly while pointing at a venueId that
+  // no longer resolves — and any musician holding a spot would have a booking nobody can answer for.
+  // Deleting is blocked until the venue has taken those nights off the board itself, which is also
+  // what makes the musicians see a cancellation rather than a session that quietly stops existing.
+  //
+  // Only *upcoming* sessions count. A session is never marked "completed" — its status stays
+  // 'active' after the night has happened — so counting every active session would permanently lock
+  // a venue out of deleting an account it had ever actually used.
+  const upcomingSessions = await JamSession.countDocuments({
+    venueId: id,
+    status: 'active',
+    date: { $gte: dateStringToUtcMidnight(nowInAppTimezone().date) },
+  });
+
+  if (upcomingSessions > 0) {
+    const sessions = upcomingSessions === 1 ? 'jam session' : 'jam sessions';
+
+    throw new Error(
+      `Cancel your ${upcomingSessions} upcoming ${sessions} before deleting your account`,
+      { cause: { status: 409 } },
+    );
+  }
+
   const user = await User.findByIdAndDelete(id);
 
   if (!user) throw new Error('User not found', { cause: { status: 404 } });

@@ -75,6 +75,20 @@ Each `schemas/xSchema.ts` exports three schemas plus inferred types:
 - **`updateXSchema`** — `xInputSchema.partial()`, refined to reject an empty body (`at least one field is required`).
 - **`xOutputSchema`** — shapes the response: adds `id`, omits secrets, reuses field rules via `.shape`.
 
+**Output schemas must use plain `z.object`, never `z.strictObject`, for nested shapes.** They parse
+mongoose *documents*, and an embedded subdocument carries its entire prototype — `_doc`,
+`$__parent`, `save`, `toObject` and about eighty more. A strictObject reports every one of them as
+an unrecognized key and refuses the parse. Share the field rules via `.shape` instead of reusing the
+input schema itself. Strictness belongs on the way in, where an unexpected key means the client sent
+something wrong; on the way out it would only mean mongoose is mongoose.
+
+`validateQuery` is the third member of the family, and it cannot follow the pattern of the other
+two. **Express 5 exposes `req.query` through a getter with no setter** (it parses the query string
+lazily), so `req.query = data` throws `Cannot set property query of #<IncomingMessage> which has
+only a getter`. It uses `Object.defineProperty` instead. `req.body` and `req.params` are ordinary
+properties and assign fine. Controllers type the parsed result through the fourth `RequestHandler`
+generic: `RequestHandler<Params, ResBody, ReqBody, ReqQuery>`.
+
 Cross-field rules use `.superRefine()` with an explicit `path` so the issue attaches to the right field. A refined schema no longer exposes `.shape` or `.partial()`, so keep the raw fields in a private base object (`userFields`) and build all three exports from it.
 
 Two consequences of Zod running first that are easy to get wrong:
@@ -150,17 +164,78 @@ On `/users/:id`, `authenticate` runs *before* `validateParams` so an anonymous c
 
 `req.user` is typed by the global augmentation in `src/types/express.d.ts`, which also owns the `AuthPayload` type — `utils/jwt.ts` imports it from there rather than redeclaring it.
 
+### Time
+
+**Every wall-clock value is interpreted in one fixed zone, `APP_TIMEZONE` in `utils/time.ts`
+(Europe/Berlin).** This is a decision, not a default: jam sessions happen in physical rooms in one
+city, so `"19:00"` means 19:00 there regardless of where the reader is. Storing UTC instants would
+be more portable but would drag a conversion into every comparison and form field.
+
+Consequences that hold the design together:
+
+- **`date` is a calendar day pinned to midnight UTC; times are `"HH:mm"` strings.** All time
+  arithmetic goes through `timeToMinutes`/`minutesToTime`, which is what keeps DST out of the
+  picture — a 19:00–22:00 session is three hours of wall clock on every date of the year.
+- **ISO dates and `"HH:mm"` times sort correctly as strings**, so "is this in the past?" is a plain
+  `<` against `nowInAppTimezone()`, with nothing to convert and nothing to get subtly wrong.
+- **`new Date('2026-02-30')` does not produce an Invalid Date** — it silently rolls over to March 2.
+  Calendar validity comes from `z.iso.date()`, which does real range checking. Never hand-roll it.
+- Zod carries `date` as a `"YYYY-MM-DD"` string all the way to the controller, which converts it
+  with `dateStringToUtcMidnight` on the way to the model. `utcMidnightToDateString` is the inverse,
+  needed when an update has to be re-validated against the stored document.
+
 ### Data model decisions
 
-`README.md` lists the three collections; the models themselves are the source of truth for fields. What isn't visible in either, and must not be reinvented:
+`README.md` lists the three collections; the models themselves are the source of truth for fields.
+What isn't visible in either, and must not be reinvented:
 
-- **JamSessions** (not yet built) — `instrumentTemplate: [{ instrument, spotsTotal }]` is what the venue's form sets. At creation it is expanded into the embedded `slots[].spots[]` array of individually labelled, individually bookable spots (`{ spotId, instrument, label, bookingId }`), with `bookingId` null while a spot is free. Availability is per spot, not a counter.
+- **JamSessions** — `instrumentTemplate: [{ instrument, spotsTotal }]` is what the venue's form
+  sets. At creation `generateSlots` expands it into the embedded `slots[].spots[]` array of
+  individually labelled, individually bookable spots (`{ spotId, instrument, label, bookingId }`),
+  with `bookingId` null while a spot is free. **Availability is per spot, not a counter** — a
+  counter would be a second source of truth to keep in step under concurrency, which is the whole
+  bug the atomic claim exists to avoid.
 - **Bookings** (not yet built) — **one document per claimed spot.** A band claiming several spots in one submission produces several documents sharing a `groupId`; the UI regroups by `groupId`. Cancelling sets `status: "cancelled"` and frees the spot — bookings are never hard-deleted.
 
 Two invariants the implementation must preserve:
 
 - **Claiming a spot is a single atomic `findOneAndUpdate`** matching on `bookingId: null` with `arrayFilters`, never read-then-check-then-write. A `null` result means the spot was taken concurrently → `409`. The `Booking` document is only created after the claim succeeds. Multi-spot submissions run the claim once per spot, each succeeding or failing independently.
 - **Role checks live server-side** on every protected route (a `requireRole(role)` middleware returning `403`), not only in the frontend.
+
+### Jam sessions
+
+The rules are numbered JS01–JS15 on the project board; the code comments cite those numbers. The
+ones that shape the implementation rather than just validating a field:
+
+- **Reading is public, writing is venue-only.** On `/jam-sessions/:id`, `validateParams` runs
+  *before* `authenticate` — the opposite of `/users/:id`. There is no identity to protect on a
+  public GET, so a malformed id is just a malformed id.
+- **Ownership (JS02) is checked inside the controller, not in middleware**, via
+  `findOwnedJamSession`. `requireSelf` can be middleware because the answer is already in the URL;
+  ownership of a *resource* isn't, so a middleware version would load the same document twice to
+  answer one question. The 404 deliberately precedes the 403: the browse is public, so existence is
+  not a secret.
+- **Two field lists govern updates, and they are not the same list.** `FROZEN_ONCE_BOOKED` includes
+  `date`; `RESHAPES_SLOTS` doesn't, because slots carry times, not dates — moving a session to
+  another day leaves its 19:00 slot at 19:00. `date` is frozen anyway: someone who booked a Tuesday
+  did not agree to a Friday.
+- **A partial update cannot be checked against the cross-field rules**, so when a shape field
+  changes the update is merged over the stored document and the whole thing re-run through
+  `jamSessionInputSchema`. This runs *only* when a shape field changed — re-validating a title edit
+  would re-run the past-date rule and reject a typo fix on a session happening tonight.
+- **The catch-all tags match every filter** (JS15): `?genre=jazz` matches `all-genres` sessions too,
+  via `$in: [genre, ALL_GENRES]`. Exact matching would make a venue that welcomed everyone findable
+  by nobody.
+- **`venueId` is never populated.** The venue's public identity — `venueName`, `address` — lives on
+  the session, because a promoter may run nights in several rooms and the User model has no venue
+  name at all. So the browse never touches the users collection and cannot leak an email.
+- **`deleteUser` blocks on *upcoming* active sessions only.** A session is never marked
+  "completed" — its status stays `active` after the night has passed — so counting every active
+  session would permanently lock out any venue that had ever used the app.
+- **The generation caps are enforced twice**: in Zod, for a 400 that explains the arithmetic, and
+  again inside `generateSlots`, which throws a bare `Error` (so, a 500) for callers that skipped
+  validation — a seed script or a migration. `slots[].spots[]` is embedded, so an unbounded template
+  is a way to write a multi-megabyte document against Mongo's 16MB ceiling.
 
 ## Deployment (Render, free tier)
 
