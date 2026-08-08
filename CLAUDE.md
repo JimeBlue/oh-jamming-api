@@ -195,11 +195,11 @@ What isn't visible in either, and must not be reinvented:
   with `bookingId` null while a spot is free. **Availability is per spot, not a counter** — a
   counter would be a second source of truth to keep in step under concurrency, which is the whole
   bug the atomic claim exists to avoid.
-- **Bookings** (not yet built) — **one document per claimed spot.** A band claiming several spots in one submission produces several documents sharing a `groupId`; the UI regroups by `groupId`. Cancelling sets `status: "cancelled"` and frees the spot — bookings are never hard-deleted.
+- **Bookings** — **one document per claimed spot.** A band claiming several spots in one submission produces several documents sharing a `groupId` and a `qrCode`; the UI regroups by `groupId`. Cancelling sets `status: "cancelled"` and frees the spot — bookings are never hard-deleted.
 
 Two invariants the implementation must preserve:
 
-- **Claiming a spot is a single atomic `findOneAndUpdate`** matching on `bookingId: null` with `arrayFilters`, never read-then-check-then-write. A `null` result means the spot was taken concurrently → `409`. The `Booking` document is only created after the claim succeeds. Multi-spot submissions run the claim once per spot, each succeeding or failing independently.
+- **Claiming a spot is a single atomic `findOneAndUpdate`** matching on `bookingId: null` with `arrayFilters`, never read-then-check-then-write. A `null` result means the spot was taken concurrently → `409`. The `Booking` document is only created after the claim succeeds. A multi-spot submission is all-or-nothing: the first refusal releases everything already claimed (BK07).
 - **Role checks live server-side** on every protected route (a `requireRole(role)` middleware returning `403`), not only in the frontend.
 
 ### Jam sessions
@@ -236,6 +236,68 @@ ones that shape the implementation rather than just validating a field:
   again inside `generateSlots`, which throws a bare `Error` (so, a 500) for callers that skipped
   validation — a seed script or a migration. `slots[].spots[]` is embedded, so an unbounded template
   is a way to write a multi-megabyte document against Mongo's 16MB ceiling.
+
+### Bookings
+
+Numbered BK01–BK18 on the project board, same convention as JS. **Five are deliberately deferred
+and their numbers are reserved, not reused**: BK05 (unknown spot folded into the same `409` as a
+taken one), BK09 (`bandName` required only for a group — it is plain optional), BK13 (no block on
+cancelling after the slot has started), BK15 (no update endpoint at all), BK16 (a musician *can*
+delete their account while holding bookings; the equivalent venue rule still applies). Do not
+"finish" these without being asked — they were cut against a deadline, not overlooked.
+
+`utils/claimSpot.ts` is the only genuinely concurrent code in the app, and both functions in it
+share one non-obvious rule:
+
+- **The deciding condition goes in the query filter, not only in `arrayFilters`.** This is the trap:
+  `arrayFilters` alone still matches the *document* by `_id`, updates zero array elements, and hands
+  back a document that is indistinguishable from a successful claim. The nested `$elemMatch` on
+  `slots` is what makes "nothing to claim" arrive as `null`.
+- **Never decide anything from `modifiedCount`.** `JamSession` has `timestamps: true`, so mongoose
+  appends `$set: { updatedAt }` to every update — the document counts as modified whenever it
+  matches by `_id`, whether or not any spot was touched. `releaseSpot` originally used it and
+  cheerfully reported success on spots it had not freed.
+- **`releaseSpot` matches on our own `bookingId`**, not on "not null", so it can only ever free a
+  spot this booking holds. That is what makes it safe to call from a rollback, a retry and a
+  double-clicked cancel alike.
+- The booking `_id` is **generated before the claim** (`new Types.ObjectId()`), because the claim has
+  to write something into `bookingId` and the document does not exist yet. It is then used as the
+  document's `_id`, so spot and booking point at each other from the first moment either exists.
+
+The rest of what shapes the implementation:
+
+- **`groupId` and `qrCode` have no `default` on the model, on purpose.** A mongoose default fires
+  per document, which would give every spot in one submission its own group and its own QR code —
+  exactly backwards. The controller generates one of each per submission.
+- **A partial unique index on `spotId where status: 'confirmed'`** is the database-level backstop
+  behind the atomic claim. Partial is load-bearing: a spot that is claimed, cancelled and reclaimed
+  accumulates cancelled rows, and a plain unique index would make the second musician ever to book
+  it collide with the first one's cancelled record.
+- **Claims run sequentially, not in parallel.** Capped at ten spots, so a submission that will fail
+  stops at the first refusal instead of acquiring the rest only to hand them back.
+- **Cancelling writes the document first, then frees the spot.** The two writes cannot be one
+  operation. Release-first would leave a musician holding a "confirmed" receipt for a spot someone
+  else can take; cancel-first leaves one spot unsold. The second is the quieter failure.
+- **`insertMany` failure also releases.** Otherwise the spots stay held forever with nothing
+  recording why.
+- **The denormalized display fields (`instrument`, `label`, `slotStartTime`, `slotEndTime`) are a
+  snapshot, not a cache.** They are safe because JS10 freezes the session's times and line-up as
+  soon as any spot is booked, so they cannot drift while the booking is live.
+- **`bookingSchema.ts` exports two schemas, not the usual three** — there is no `updateBookingSchema`
+  because BK15 is deferred. It also owns `groupIdParamSchema`, since a `groupId` is a uuid and
+  `idParamSchema` would reject every valid one.
+- **`bookingDetailOutputSchema` renames while it parses.** `.populate()` replaces the value at the
+  same path, so a populated session arrives under the key `jamSessionId`; a `.transform()` emits it
+  as `jamSession` and `musicianId` as `musician`. BK18 is the populate *projection* — there is no
+  email on the document for the schema to have to remember to drop.
+- **`authenticate` is mounted on the whole booking router**, unlike the other two. Nothing here is
+  public, so there is no route it can be omitted from by accident.
+- **`GET /bookings` is one endpoint for both roles** — a musician's own bookings, a venue's sessions'
+  bookings. Splitting it would make the client pick a URL based on its own role. It takes no query
+  parameters at all; the client splits upcoming from past.
+- **The BK14 cascade runs outside `cancelJamSession`'s idempotence check**, so a repeat call repairs
+  a cascade that failed halfway. The spots keep their `bookingId`s: a dead session is not
+  availability.
 
 ## Deployment (Render, free tier)
 
