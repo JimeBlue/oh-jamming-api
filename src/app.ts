@@ -8,6 +8,7 @@ import connectDB from './db/index.ts';
 import errorHandler from './middleware/errorHandler.ts';
 import notFoundHandler from './middleware/notFoundHandler.ts';
 import authRoutes from './routes/authRoutes.ts';
+import bookingRoutes from './routes/bookingRoutes.ts';
 import jamSessionRoutes from './routes/jamSessionRoutes.ts';
 import userRoutes from './routes/userRoutes.ts';
 
@@ -53,6 +54,7 @@ app.get('/health', (req, res) => {
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/jam-sessions', jamSessionRoutes);
+app.use('/bookings', bookingRoutes);
 
 // both must stay last: notFoundHandler only runs when no route above matched, and errorHandler is
 // the 4-arg middleware every next(err) above ends up in

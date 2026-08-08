@@ -1,5 +1,6 @@
 import type { RequestHandler } from 'express';
 import { z } from 'zod';
+import Booking from '#models/Booking';
 import JamSession from '#models/JamSession';
 import User from '#models/User';
 import type { IdParams } from '#schemas/idParamSchema';
@@ -264,8 +265,21 @@ export const cancelJamSession: RequestHandler<IdParams, JamSessionOutputDTO> = a
     await jamSession.save();
   }
 
-  // NOTE for the Bookings phase: the spots deliberately keep their bookingIds. Cancelling the
-  // session is the signal; what happens to the bookings underneath it — cancelled in turn,
-  // notified, refunded — is a decision that belongs with the model that owns them.
+  // BK14 — the night is off, so every booking on it is off. Without this a musician's "My bookings"
+  // would keep showing "confirmed" for a session the venue called off, which is the kind of thing
+  // someone only discovers by turning up.
+  //
+  // The session is settled first: its status is the authoritative signal, and the bookings follow.
+  // Deliberately outside the idempotence check above — running it again on an already-cancelled
+  // session matches nothing and costs nothing, and it means a repeat call repairs a cascade that
+  // failed halfway rather than skipping it forever.
+  //
+  // The spots keep their bookingIds. Freeing them would put a dead session's line-up back on the
+  // board as if it were available, and nothing can be booked on a cancelled session anyway (BK03).
+  await Booking.updateMany(
+    { jamSessionId: jamSession._id, status: 'confirmed' },
+    { $set: { status: 'cancelled' } },
+  );
+
   res.json(jamSessionOutputSchema.parse(jamSession));
 };
