@@ -8,7 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev      # watch mode, loads .env.development.local
 npm run build    # rm -rf dist && tsc
 npm start        # NODE_ENV=production node dist/app.js
+npm run seed     # reset the demo data (src/scripts/seed.ts)
 ```
+
+**`npm run seed` points at whatever `MONGODB_URI` says, and that is the same database the deployed app uses.** Three things follow, and none of them are optional if the script is ever edited: it refuses to run when `NODE_ENV=production`; demo accounts are tagged by an `@ohjamming.demo` email address and the cleanup only ever deletes those users, their jam sessions and the bookings on them; and no collection is ever cleared wholesale. Session dates are generated relative to the run date rather than hardcoded, so re-running always produces upcoming nights. Users are created one at a time with `User.create` rather than `insertMany`, because `insertMany` skips document middleware and would store the passwords unhashed — the accounts would exist and no login would work. Sessions go through `jamSessionInputSchema` and `generateSlots`, and bookings through `claimSpot`, so seeded state is indistinguishable from state the API produced.
 
 There is no test runner and no linter configured in this repo. Type checking happens through `npm run build`.
 

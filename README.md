@@ -37,11 +37,27 @@ npm run dev
 
 ## Scripts
 
-| Script          | Description                            |
-| --------------- | -------------------------------------- |
+| Script          | Description                             |
+| --------------- | --------------------------------------- |
 | `npm run dev`   | Start the dev server with file watching |
 | `npm run build` | Compile TypeScript to `dist/`           |
 | `npm start`     | Run the compiled server                 |
+| `npm run seed`  | Reset the demo data                     |
+
+## Demo data
+
+`npm run seed` fills the database with 4 venues, 8 musicians, 12 jam sessions and a set of existing
+bookings — including a slot with every spot taken, a partly booked slot, a band booking sharing one
+`groupId`, and a cancelled booking. Every account uses the password `demopassword`; log in as
+`jane@ohjamming.demo` for the fullest "My bookings", or `ana@ohjamming.demo` to see the venue side.
+
+Session dates are generated relative to the day you run it, so the seeded nights are always
+upcoming. It is safe to re-run — that is the point, since developing against the booking flow fills
+the board up quickly.
+
+**It only ever removes what it created.** Demo accounts are identified by their `@ohjamming.demo`
+email address, and the cleanup deletes those users, their jam sessions and the bookings on them —
+nothing else, and no collection is ever cleared. It also refuses to run when `NODE_ENV=production`.
 
 ## Project structure
 

@@ -12,6 +12,7 @@
   },
   "scripts": {
     "dev": "node --env-file=.env.development.local --watch --conditions development src/app.ts",
+    "seed": "node --env-file=.env.development.local --conditions development src/scripts/seed.ts",
     "prebuild": "rm -rf dist",
     "build": "tsc",
     "start": "NODE_ENV=production node dist/app.js"
