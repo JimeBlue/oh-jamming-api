@@ -61,22 +61,27 @@ src/
 
 ## API
 
-| Method   | Route                | Access                        |
-| -------- | -------------------- | ----------------------------- |
-| `POST`   | `/users`             | public — this is registration |
-| `GET`    | `/users`             | authenticated                 |
-| `GET`    | `/users/:id`         | authenticated                 |
-| `PATCH`  | `/users/:id`         | own account only              |
-| `DELETE` | `/users/:id`         | own account only              |
-| `POST`   | `/auth/login`        | public                        |
-| `POST`   | `/auth/refresh`      | refresh cookie                |
-| `DELETE` | `/auth/logout`       | public (idempotent)           |
-| `GET`    | `/auth/me`           | authenticated                 |
-| `GET`    | `/jam-sessions`      | public                        |
-| `GET`    | `/jam-sessions/:id`  | public                        |
-| `POST`   | `/jam-sessions`      | venues only                   |
-| `PATCH`  | `/jam-sessions/:id`  | owning venue only             |
-| `DELETE` | `/jam-sessions/:id`  | owning venue only — cancels   |
+| Method   | Route                      | Access                           |
+| -------- | -------------------------- | -------------------------------- |
+| `POST`   | `/users`                   | public — this is registration    |
+| `GET`    | `/users`                   | authenticated                    |
+| `GET`    | `/users/:id`               | authenticated                    |
+| `PATCH`  | `/users/:id`               | own account only                 |
+| `DELETE` | `/users/:id`               | own account only                 |
+| `POST`   | `/auth/login`              | public                           |
+| `POST`   | `/auth/refresh`            | refresh cookie                   |
+| `DELETE` | `/auth/logout`             | public (idempotent)              |
+| `GET`    | `/auth/me`                 | authenticated                    |
+| `GET`    | `/jam-sessions`            | public                           |
+| `GET`    | `/jam-sessions/:id`        | public                           |
+| `POST`   | `/jam-sessions`            | venues only                      |
+| `PATCH`  | `/jam-sessions/:id`        | owning venue only                |
+| `DELETE` | `/jam-sessions/:id`        | owning venue only — cancels      |
+| `GET`    | `/bookings`                | authenticated — scoped by role   |
+| `GET`    | `/bookings/:id`            | owning musician or venue         |
+| `POST`   | `/bookings`                | musicians only                   |
+| `DELETE` | `/bookings/:id`            | owning musician — cancels        |
+| `DELETE` | `/bookings/group/:groupId` | owning musician — cancels a band |
 
 Browsing is public: a visitor can see what's on before deciding to register. Posting and
 editing are venue-only, enforced server-side.
@@ -155,12 +160,55 @@ Rules worth knowing before using the API:
 - **Once any spot is booked, the shape is frozen.** `date`, `startTime`, `endTime`,
   `slotDurationMinutes` and `instrumentTemplate` can no longer change (`409`); the title, summary,
   overview, genres and skill levels still can.
-- **Sessions are cancelled, never deleted.** `DELETE` sets `status: "cancelled"`, which keeps the
-  bookings hanging off it resolvable. Cancelling twice is not an error.
+- **Sessions are cancelled, never deleted.** `DELETE` sets `status: "cancelled"` and cancels every
+  confirmed booking on the session with it, so nobody is left holding a receipt for a night that
+  isn't happening. Cancelling twice is not an error.
 - **A venue cannot delete its account while it has upcoming sessions** — it has to take them off
   the board first, so musicians see a cancellation rather than a session that quietly disappears.
 - `address.formatted` is required; `lat`/`lng` are optional but must come as a pair. They exist only
   to draw a map pin, so a venue missing from the geocoder can still post by typing the address.
+
+## Bookings
+
+A musician picks one time slot and claims one or more spots inside it. Solo or as a band, that is
+a single request:
+
+```json
+{
+  "jamSessionId": "68f2...",
+  "slotId": "0f0c1e5a-...",
+  "spotIds": ["a1b2...", "c3d4...", "e5f6..."],
+  "bandName": "The Nightowls"
+}
+```
+
+The response is **one booking document per spot**, all sharing a `groupId` and a `qrCode`. That is
+what lets a band cancel one instrument without touching the rest, while "My bookings" still draws
+the whole thing as a single card and the band presents one code at the door.
+
+Each booking also carries the spot's `instrument`, `label`, `slotStartTime` and `slotEndTime`,
+copied at the moment it was claimed — so a booking renders on its own, without fetching the session
+and walking its slots.
+
+Rules worth knowing before using the API:
+
+- **A spot is claimed atomically.** Two musicians submitting the same spot at the same instant get
+  one `201` and one `409`; there is no window in which both succeed. The `409` names the instrument
+  and time so the client can say which one to re-pick.
+- **A submission is all-or-nothing.** If any spot in a multi-spot request has just been taken, the
+  ones already claimed are released and nothing is written. A band gets all five spots or none.
+- **Bookings are cancelled, never deleted.** `DELETE` sets `status: "cancelled"` and frees the spot
+  for someone else. Cancelling twice is not an error, and cancelled bookings stay in every list —
+  they are the musician's history and the venue's record of who dropped out.
+- **There is no edit endpoint.** Dropping one instrument is cancelling that booking; moving to
+  another slot is cancel and rebook, because a spot can only ever be acquired through the claim.
+  When moving, book the new slot *first* — cancelling first can leave you with nothing if the new
+  spots turn out to be taken.
+- **Cancelling a jam session cancels its bookings** (see above), so a musician never sees
+  "confirmed" against a night that was called off.
+- **Nothing here is public.** A musician sees their own bookings, a venue sees the bookings on its
+  own sessions, and a venue only ever sees a musician's name — never their email.
+- `qrCode` is an opaque token, not an image. The client renders the QR code from it.
 
 ## Data model
 
