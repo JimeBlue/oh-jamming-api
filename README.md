@@ -66,7 +66,7 @@ src/
 | `POST`   | `/users`             | public — this is registration |
 | `GET`    | `/users`             | authenticated                 |
 | `GET`    | `/users/:id`         | authenticated                 |
-| `PUT`    | `/users/:id`         | own account only              |
+| `PATCH`  | `/users/:id`         | own account only              |
 | `DELETE` | `/users/:id`         | own account only              |
 | `POST`   | `/auth/login`        | public                        |
 | `POST`   | `/auth/refresh`      | refresh cookie                |
@@ -75,7 +75,7 @@ src/
 | `GET`    | `/jam-sessions`      | public                        |
 | `GET`    | `/jam-sessions/:id`  | public                        |
 | `POST`   | `/jam-sessions`      | venues only                   |
-| `PUT`    | `/jam-sessions/:id`  | owning venue only             |
+| `PATCH`  | `/jam-sessions/:id`  | owning venue only             |
 | `DELETE` | `/jam-sessions/:id`  | owning venue only — cancels   |
 
 Browsing is public: a visitor can see what's on before deciding to register. Posting and
@@ -114,7 +114,7 @@ until it expires — a signed JWT cannot be revoked — so a copy captured befor
 work for up to 15 minutes. That short lifetime is the mitigation.
 
 Roles are enforced server-side with `requireRole('venue')` / `requireRole('musician')`, never only
-in the client. `role` is fixed at registration and cannot be changed through `PUT /users/:id`.
+in the client. `role` is fixed at registration and cannot be changed through `PATCH /users/:id`.
 
 ## Jam sessions
 

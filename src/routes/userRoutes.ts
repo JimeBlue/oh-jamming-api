@@ -26,7 +26,7 @@ userRoutes
   .all(authenticate, validateParams(idParamSchema))
   .get(getUserById)
   // requireSelf before validateBody: no point parsing a body the caller isn't allowed to submit
-  .put(requireSelf, validateBody(updateUserSchema), updateUser)
+  .patch(requireSelf, validateBody(updateUserSchema), updateUser)
   .delete(requireSelf, deleteUser);
 
 export default userRoutes;
