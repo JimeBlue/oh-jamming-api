@@ -16,11 +16,17 @@ type UserOutputDTO = z.infer<typeof userOutputSchema>;
 
 
 
-export const getUsers: RequestHandler<unknown, UserOutputDTO[]> = async (req, res) => {
-  const users = await User.find();
-  res.json(users.map((user) => userOutputSchema.parse(user)));
-};
+// There is deliberately no `getUsers`. Listing every account is not something any part of this app
+// needs: a venue learns who is playing at its night from `GET /bookings`, which gives it a
+// musician's name and nothing else (BK18), and the venue's own public identity lives on the jam
+// session rather than on its user record. An index route would only have existed to hand any logged
+// in caller every email address on the platform, which is exactly the thing BK18 is careful about.
+//
+// If a users index is ever genuinely needed, it needs its own narrower output schema — the one
+// below includes `email` because it is only ever used on the caller's own account.
 
+// `requireSelf` guards this route, so `id` is always the caller's own. That is what makes it safe to
+// return `email`: the projection and the guard are one decision, not two.
 export const getUserById: RequestHandler<IdParams, UserOutputDTO> = async (req, res) => {
   const { id } = req.params;
   const user = await User.findById(id);
