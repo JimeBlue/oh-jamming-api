@@ -64,6 +64,15 @@ export const bookingInputSchema = bookingFields.refine(
 
 export type BookingInput = z.infer<typeof bookingInputSchema>;
 
+// `groupId` is a uuid rather than an ObjectId, so `idParamSchema` cannot check it — it would reject
+// every valid group. Same job, different format: a malformed value is a 400 here instead of a query
+// that quietly matches nothing and reports the group as missing.
+export const groupIdParamSchema = z.object({
+  groupId: uuidField,
+});
+
+export type GroupIdParams = z.infer<typeof groupIdParamSchema>;
+
 // No update schema. BK15 is deferred: there is no PATCH /bookings/:id, because the only thing it
 // would have edited is `bandName`. Dropping one instrument is cancelling one booking document, and
 // moving to another slot is cancel + rebook — a spot can only ever be acquired through the atomic
