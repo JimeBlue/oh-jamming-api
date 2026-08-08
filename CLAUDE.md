@@ -72,7 +72,7 @@ Zod owns request validation; mongoose validators are the DB-layer safety net, an
 Each `schemas/xSchema.ts` exports three schemas plus inferred types:
 
 - **`xInputSchema`** — `z.strictObject`, so unknown keys are a 400 rather than silently dropped.
-- **`updateXSchema`** — `xInputSchema.partial()`, refined to reject an empty body (`at least one field is required`).
+- **`updateXSchema`** — `xInputSchema.partial()`, refined to reject an empty body (`at least one field is required`). **Updates are `PATCH`, never `PUT`** — the schema is `.partial()`, so the request is a partial modification. `PUT` promises replacement, which would mean an omitted field should be cleared; these endpoints leave it alone. New resources follow this.
 - **`xOutputSchema`** — shapes the response: adds `id`, omits secrets, reuses field rules via `.shape`.
 
 **Output schemas must use plain `z.object`, never `z.strictObject`, for nested shapes.** They parse

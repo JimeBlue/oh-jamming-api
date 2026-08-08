@@ -42,7 +42,7 @@ jamSessionRoutes
   .route('/:id')
   .all(validateParams(idParamSchema))
   .get(getJamSessionById)
-  .put(authenticate, requireRole('venue'), validateBody(updateJamSessionSchema), updateJamSession)
+  .patch(authenticate, requireRole('venue'), validateBody(updateJamSessionSchema), updateJamSession)
   // DELETE, but it cancels rather than deletes (JS11). The verb describes what the client is asking
   // for — take this session off the board — while the server keeps the row so the bookings hanging
   // off it still resolve. Ownership is checked in the controller, which is where the document is.
