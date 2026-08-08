@@ -162,6 +162,8 @@ Three guards, composed in this order:
 
 On `/users/:id`, `authenticate` runs *before* `validateParams` so an anonymous caller learns nothing about the id they sent.
 
+**There is no `GET /users`, and `requireSelf` guards `GET /users/:id` as well as the writes.** Accounts are not browsable. An index route existed once and was removed: it returned every user through `userOutputSchema`, which includes `email`, to any authenticated caller — so registering as a musician got you every account on the platform. Nothing needs it, because a venue learns who booked its night from `GET /bookings`, where BK18 limits the musician to a name. Do not add one back without a narrower output schema; `userOutputSchema` carries `email` precisely because it is only ever used on the caller's own account.
+
 `req.user` is typed by the global augmentation in `src/types/express.d.ts`, which also owns the `AuthPayload` type — `utils/jwt.ts` imports it from there rather than redeclaring it.
 
 ### Time

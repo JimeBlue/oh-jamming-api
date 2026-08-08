@@ -64,8 +64,7 @@ src/
 | Method   | Route                      | Access                           |
 | -------- | -------------------------- | -------------------------------- |
 | `POST`   | `/users`                   | public — this is registration    |
-| `GET`    | `/users`                   | authenticated                    |
-| `GET`    | `/users/:id`               | authenticated                    |
+| `GET`    | `/users/:id`               | own account only                 |
 | `PATCH`  | `/users/:id`               | own account only                 |
 | `DELETE` | `/users/:id`               | own account only                 |
 | `POST`   | `/auth/login`              | public                           |
@@ -120,6 +119,11 @@ work for up to 15 minutes. That short lifetime is the mitigation.
 
 Roles are enforced server-side with `requireRole('venue')` / `requireRole('musician')`, never only
 in the client. `role` is fixed at registration and cannot be changed through `PATCH /users/:id`.
+
+**There is no `GET /users`, and `/users/:id` is your own account only.** Accounts are not browsable:
+an index route would hand any logged-in caller every email address on the platform, and nothing in
+the app needs one. What a venue is allowed to know about a musician who booked its night comes from
+`GET /bookings` — a name, and nothing else.
 
 ## Jam sessions
 
