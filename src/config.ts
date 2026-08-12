@@ -23,6 +23,10 @@ const envSchema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
+
+  // Optional for the same reason as the three above: without it a venue writes their own overview,
+  // which is the path that has always worked, and only `POST /ai/overview` has nothing to talk to.
+  GEMINI_API_KEY: z.string().min(1).optional(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -42,6 +46,7 @@ export const {
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_API_KEY,
   CLOUDINARY_API_SECRET,
+  GEMINI_API_KEY,
 } = parsedEnv.data;
 
 // drives the cookie flags: sameSite 'none' + secure only work over HTTPS, which localhost isn't

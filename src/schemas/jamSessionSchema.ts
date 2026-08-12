@@ -92,9 +92,22 @@ const addressField = addressFields.refine(
 // `type` is a single-value literal rather than a plain string: it is the seam that lets an
 // overview grow image or video blocks later without a migration, and today it means an unknown
 // block type is a 400 rather than something the client has to defend against.
+// Exported because the AI writers have to produce something that fits through here — a model told
+// "under 2000 characters" and a schema that rejects 2001 have to be reading the same number, or the
+// generator's happy path is a 400 nobody can act on. The summary's minimum matters just as much in
+// that direction: a model that answers a thin note with six words has written a value this schema
+// refuses.
+export const MAX_OVERVIEW_BLOCK_CHARS = 2000;
+export const MIN_SUMMARY_CHARS = 10;
+export const MAX_SUMMARY_CHARS = 500;
+
 const overviewBlockField = z.strictObject({
   type: z.literal('text'),
-  content: z.string().trim().min(1, 'content cannot be empty').max(2000, 'max length is 2000 chars'),
+  content: z
+    .string()
+    .trim()
+    .min(1, 'content cannot be empty')
+    .max(MAX_OVERVIEW_BLOCK_CHARS, `max length is ${MAX_OVERVIEW_BLOCK_CHARS} chars`),
 });
 
 const instrumentTemplateField = z.strictObject({
@@ -115,7 +128,11 @@ const instrumentTemplateField = z.strictObject({
 // access token, and status is only ever changed through the cancel endpoint.
 const jamSessionFields = z.strictObject({
   title: z.string().trim().min(3, 'min length is 3 chars').max(120, 'max length is 120 chars'),
-  summary: z.string().trim().min(10, 'min length is 10 chars').max(500, 'max length is 500 chars'),
+  summary: z
+    .string()
+    .trim()
+    .min(MIN_SUMMARY_CHARS, `min length is ${MIN_SUMMARY_CHARS} chars`)
+    .max(MAX_SUMMARY_CHARS, `max length is ${MAX_SUMMARY_CHARS} chars`),
 
   // Optional, and it stays that way: every session posted before uploads existed has no image, and
   // a venue in a hurry should be able to put a night on the board without finding a photo first.
