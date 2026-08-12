@@ -193,6 +193,19 @@ const JamSessionSchema = new Schema(
       trim: true,
     },
 
+    // A Cloudinary delivery URL, put there by `POST /uploads/image`. The bytes are never stored
+    // here — this field is the whole of the app's relationship with the image. No `required` and no
+    // default: a session without a photo is a normal session, and the client draws a placeholder.
+    //
+    // The host restriction lives in the zod schema rather than here. Mongoose validators run on
+    // writes the API makes itself too — the seed script among them — and a rule about what clients
+    // are allowed to send belongs at the edge that reads client input.
+    image: {
+      type: String,
+      maxLength: [500, 'max length is 500 chars'],
+      trim: true,
+    },
+
     // a calendar day pinned to midnight UTC, not an instant — see `dateStringToUtcMidnight`.
     // The times below are wall-clock strings in APP_TIMEZONE, which is what keeps a 19:00 session
     // at 19:00 on both sides of a DST change.
