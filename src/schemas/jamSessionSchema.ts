@@ -49,6 +49,13 @@ export const MAX_SPOTS_PER_SESSION = 300;
 
 const MAX_OVERVIEW_BLOCKS = 20;
 
+// The only way a URL gets into `image` is `POST /uploads/image`, which uploads to this project's
+// own Cloudinary account and returns a URL under this host. Pinning it is what keeps a session from
+// storing a hotlink to somebody else's server: a listing is public, and an <img> pointed anywhere
+// is a tracking pixel, an image whose contents can be swapped after the night was posted, or
+// somebody else's bandwidth bill.
+const CLOUDINARY_URL_PREFIX = 'https://res.cloudinary.com/';
+
 // ---------------------------------------------------------------------------------------------
 // Reusable field pieces
 // ---------------------------------------------------------------------------------------------
@@ -109,6 +116,17 @@ const instrumentTemplateField = z.strictObject({
 const jamSessionFields = z.strictObject({
   title: z.string().trim().min(3, 'min length is 3 chars').max(120, 'max length is 120 chars'),
   summary: z.string().trim().min(10, 'min length is 10 chars').max(500, 'max length is 500 chars'),
+
+  // Optional, and it stays that way: every session posted before uploads existed has no image, and
+  // a venue in a hurry should be able to put a night on the board without finding a photo first.
+  image: z
+    .url({ protocol: /^https$/, error: 'must be an https URL' })
+    .max(500, 'max length is 500 chars')
+    .refine(
+      (url) => url.startsWith(CLOUDINARY_URL_PREFIX),
+      'must be an image uploaded through POST /uploads/image',
+    )
+    .optional(),
 
   // kept as a "YYYY-MM-DD" string here rather than transformed to a Date, because the past-date
   // rule below compares it against the current calendar day in APP_TIMEZONE and both sides sort
@@ -355,6 +373,12 @@ export const jamSessionOutputSchema = z.object({
 
   title: jamSessionFields.shape.title,
   summary: jamSessionFields.shape.summary,
+
+  // a plain optional string rather than the input field above, for the same reason `address` drops
+  // its pairing refinement: the host check is an input concern. Re-running it on the way out would
+  // turn a document stored before the rule existed — or one seeded with a fixture image — into a
+  // 500 on read.
+  image: z.string().optional(),
 
   date: z.date(),
   startTime: timeField,

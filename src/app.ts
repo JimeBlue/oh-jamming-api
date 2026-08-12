@@ -10,6 +10,7 @@ import notFoundHandler from './middleware/notFoundHandler.ts';
 import authRoutes from './routes/authRoutes.ts';
 import bookingRoutes from './routes/bookingRoutes.ts';
 import jamSessionRoutes from './routes/jamSessionRoutes.ts';
+import uploadRoutes from './routes/uploadRoutes.ts';
 import userRoutes from './routes/userRoutes.ts';
 
 const app = express();
@@ -55,6 +56,7 @@ app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/jam-sessions', jamSessionRoutes);
 app.use('/bookings', bookingRoutes);
+app.use('/uploads', uploadRoutes);
 
 // both must stay last: notFoundHandler only runs when no route above matched, and errorHandler is
 // the 4-arg middleware every next(err) above ends up in

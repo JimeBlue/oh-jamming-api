@@ -213,6 +213,7 @@ export const updateJamSession: RequestHandler<
     const candidate = {
       title: stored.title,
       summary: stored.summary,
+      image: stored.image,
       date: utcMidnightToDateString(stored.date),
       startTime: stored.startTime,
       endTime: stored.endTime,
