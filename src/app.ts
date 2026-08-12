@@ -7,6 +7,7 @@ import { CLIENT_URL, PORT } from './config.ts';
 import connectDB from './db/index.ts';
 import errorHandler from './middleware/errorHandler.ts';
 import notFoundHandler from './middleware/notFoundHandler.ts';
+import aiRoutes from './routes/aiRoutes.ts';
 import authRoutes from './routes/authRoutes.ts';
 import bookingRoutes from './routes/bookingRoutes.ts';
 import jamSessionRoutes from './routes/jamSessionRoutes.ts';
@@ -57,6 +58,7 @@ app.use('/users', userRoutes);
 app.use('/jam-sessions', jamSessionRoutes);
 app.use('/bookings', bookingRoutes);
 app.use('/uploads', uploadRoutes);
+app.use('/ai', aiRoutes);
 
 // both must stay last: notFoundHandler only runs when no route above matched, and errorHandler is
 // the 4-arg middleware every next(err) above ends up in
