@@ -1,6 +1,5 @@
 import type { CookieOptions, Response } from 'express';
 import { REFRESH_TOKEN_TTL, isProduction } from '#config';
-import { ACCESS_TOKEN_TTL } from '#utils/jwt';
 
 export const ACCESS_COOKIE = 'accessToken';
 export const REFRESH_COOKIE = 'refreshToken';
@@ -23,10 +22,25 @@ const baseCookieOptions: CookieOptions = {
   path: '/',
 };
 
-// maxAge is in milliseconds; both TTLs are in seconds
+/* maxAge is in milliseconds; REFRESH_TOKEN_TTL is in seconds.
+
+   The access cookie deliberately outlives the token inside it, and that is what
+   makes the refresh flow work at all. Giving it ACCESS_TOKEN_TTL puts two clocks
+   on one job and the browser's wins: at 15 minutes it deletes the cookie, so the
+   expired token never arrives, `authenticate` sees no token rather than a stale
+   one, and answers a bare 401 with no `WWW-Authenticate: token_expired`. The
+   client only refreshes on that header, so it reads the 401 as "logged out" and
+   returns a user to /login whose 30-day refresh token was valid the whole time.
+   The fifteen minutes was never meant to be visible to anyone.
+
+   Outliving its token costs the cookie nothing, because the cookie was never the
+   thing being trusted: `verifyAccessToken` checks the JWT's own `exp` on every
+   request, so a stale one carries something already worthless. Its only remaining
+   job is to keep arriving, so the *server* gets to say "expired" instead of the
+   browser silently saying "gone". */
 export const accessCookieOptions: CookieOptions = {
   ...baseCookieOptions,
-  maxAge: ACCESS_TOKEN_TTL * 1000,
+  maxAge: REFRESH_TOKEN_TTL * 1000,
 };
 
 export const refreshCookieOptions: CookieOptions = {
