@@ -65,6 +65,36 @@ export const getJamSessions: RequestHandler<
   res.json(jamSessions.map((jamSession) => jamSessionOutputSchema.parse(jamSession)));
 };
 
+// A venue's own board, and deliberately not `GET /?venueId=me`. The browse above answers a
+// musician's question — "what can I still turn up to?" — and every default it has is shaped by that:
+// active only, today onwards. A venue looking at its own sessions wants the opposite of both, and
+// getting there through the browse takes an explicit `from` far enough in the past to be arbitrary
+// plus a second request for the cancelled ones, because `status` takes one value rather than a list.
+// Two round trips and a client-side merge to answer one question.
+//
+// The identity comes from the access token, never from a query parameter. That is the other half of
+// why this is its own route: `?venueId=` is public, so the browse can hand anyone another venue's
+// listings — fine, those are public — while this one cannot be pointed at a stranger at all.
+export const getMyJamSessions: RequestHandler<unknown, JamSessionOutputDTO[]> = async (req, res) => {
+  const venueId = req.user?.userId;
+
+  // authenticate + requireRole('venue') both ran before this, so this cannot be false. It narrows
+  // the type — and if the route is ever mounted without its guards, 401 is still the right answer.
+  if (!venueId) throw new Error('Not authenticated', { cause: { status: 401 } });
+
+  // No status filter and no date filter: every session this venue has ever posted, cancelled and
+  // long past ones included. Those are exactly what the board is for.
+  //
+  // Newest first, which is the reverse of the browse and for the reverse reason. A musician reads
+  // forwards from today; a venue's most recent night is the one it is most likely to be looking for.
+  // Deliberately chronological rather than grouped into upcoming-then-past — how the board arranges
+  // itself is the client's business, and the moment this endpoint has an opinion about it there are
+  // two places to change when the design does.
+  const jamSessions = await JamSession.find({ venueId }).sort({ date: -1, startTime: -1 });
+
+  res.json(jamSessions.map((jamSession) => jamSessionOutputSchema.parse(jamSession)));
+};
+
 export const getJamSessionById: RequestHandler<IdParams, JamSessionOutputDTO> = async (req, res) => {
   const { id } = req.params;
   const jamSession = await JamSession.findById(id);
