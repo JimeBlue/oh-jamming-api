@@ -73,6 +73,24 @@ export const groupIdParamSchema = z.object({
 
 export type GroupIdParams = z.infer<typeof groupIdParamSchema>;
 
+// ---------------------------------------------------------------------------------------------
+// Query
+// ---------------------------------------------------------------------------------------------
+
+// A strictObject, like the jam session query: `?jamSession=abc` would otherwise be ignored and
+// return every booking the caller can see, and a filter that quietly does nothing is a worse bug
+// than one that says it doesn't recognise the parameter — here especially, since the unfiltered
+// answer looks plausible right up until it doesn't.
+//
+// Deliberately not a `status` filter as well. Cancelled bookings are the record of who dropped out,
+// so both readers want them in the list rather than filtered away, and `status` is already on every
+// row for the client to split on.
+export const bookingQuerySchema = z.strictObject({
+  jamSessionId: z.string().refine(isValidObjectId, 'must be a valid id').optional(),
+});
+
+export type BookingQuery = z.infer<typeof bookingQuerySchema>;
+
 // No update schema. BK15 is deferred: there is no PATCH /bookings/:id, because the only thing it
 // would have edited is `bandName`. Dropping one instrument is cancelling one booking document, and
 // moving to another slot is cancel + rebook — a spot can only ever be acquired through the atomic

@@ -8,6 +8,7 @@ import type {
   BookingDetailOutput,
   BookingInput,
   BookingOutput,
+  BookingQuery,
   GroupIdParams,
 } from '#schemas/bookingSchema';
 import { bookingDetailOutputSchema, bookingOutputSchema } from '#schemas/bookingSchema';
@@ -38,9 +39,15 @@ const soonestFirst = (a: BookingDetailOutput, b: BookingDetailOutput): number =>
   Number(a.jamSession.date) - Number(b.jamSession.date) ||
   a.slotStartTime.localeCompare(b.slotStartTime);
 
-export const getBookings: RequestHandler<unknown, BookingDetailOutput[]> = async (req, res) => {
+export const getBookings: RequestHandler<
+  unknown,
+  BookingDetailOutput[],
+  unknown,
+  BookingQuery
+> = async (req, res) => {
   const userId = req.user?.userId;
   const role = req.user?.role;
+  const { jamSessionId } = req.query;
 
   // `authenticate` ran before this, so neither can be missing. Here to narrow the type — and if the
   // route is ever mounted without its guard, 401 is the right answer anyway.
@@ -49,19 +56,32 @@ export const getBookings: RequestHandler<unknown, BookingDetailOutput[]> = async
   // Two shapes of the same question. A musician asks "what am I playing?", a venue asks "who is
   // playing at my nights?" — one endpoint, because the answer is the same list seen from either
   // end, and splitting it would mean the client has to know its own role to pick a URL.
+  //
+  // `jamSessionId` narrows whichever shape applies, and in both branches it is *added* to the
+  // ownership clause rather than replacing it. That is the whole security argument: a session id is
+  // public, so a filter that stood on its own would hand any venue any other venue's roster.
   let filter;
 
   if (role === 'venue') {
     // The venue's own sessions, resolved first. An aggregation with `$lookup` would do this in one
     // round trip, but a venue has tens of sessions, not thousands, and `$in` over their ids uses
     // the `{ jamSessionId, status }` index — which a `$lookup` would not.
-    const ownSessions = await JamSession.find({ venueId: userId }).select('_id');
+    //
+    // With a `jamSessionId` this is still one query, now matching at most one document: the
+    // `venueId` clause is what turns "the session you named" into "the session you named, if it is
+    // yours", so ownership is enforced by the same filter that resolves the ids.
+    const ownSessions = await JamSession.find({
+      venueId: userId,
+      ...(jamSessionId ? { _id: jamSessionId } : {}),
+    }).select('_id');
 
-    // A venue with no sessions gets `$in: []`, which matches nothing. Correct, and one fewer
-    // special case than checking for it.
+    // A venue with no sessions — or one asking about a session that isn't theirs — gets `$in: []`,
+    // which matches nothing. Correct, and one fewer special case than checking for it. An empty
+    // list rather than a 403 on purpose: this is a filter, and a filter that matches nothing has
+    // done its job. The client only ever passes ids it read off its own board.
     filter = { jamSessionId: { $in: ownSessions.map(({ _id }) => _id) } };
   } else {
-    filter = { musicianId: userId };
+    filter = { musicianId: userId, ...(jamSessionId ? { jamSessionId } : {}) };
   }
 
   const bookings = await Booking.find(filter).populate(POPULATE);

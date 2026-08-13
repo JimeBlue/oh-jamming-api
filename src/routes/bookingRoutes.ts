@@ -10,7 +10,8 @@ import authenticate from '#middleware/authenticate';
 import requireRole from '#middleware/requireRole';
 import validateBody from '#middleware/validateBody';
 import validateParams from '#middleware/validateParams';
-import { bookingInputSchema, groupIdParamSchema } from '#schemas/bookingSchema';
+import validateQuery from '#middleware/validateQuery';
+import { bookingInputSchema, bookingQuerySchema, groupIdParamSchema } from '#schemas/bookingSchema';
 import { idParamSchema } from '#schemas/idParamSchema';
 
 const bookingRoutes = Router();
@@ -27,7 +28,11 @@ bookingRoutes
   // Deliberately open to both roles. The controller reads `req.user.role` and answers the same
   // question from either end — "what am I playing?" for a musician, "who is playing at my nights?"
   // for a venue — so a `requireRole` here would only mean picking one of them to lock out.
-  .get(getBookings)
+  //
+  // `?jamSessionId=` narrows either shape of the question to one night. It does not widen it: the
+  // role scope is applied on top, so a venue cannot read another venue's roster by naming its
+  // session id — which is public, since the browse is.
+  .get(validateQuery(bookingQuerySchema), getBookings)
   .post(requireRole('musician'), validateBody(bookingInputSchema), createBooking);
 
 // Declared before `/:id`. Express would not confuse the two in any case — `/:id` matches a single
