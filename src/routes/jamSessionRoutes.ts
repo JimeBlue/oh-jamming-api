@@ -4,6 +4,7 @@ import {
   createJamSession,
   getJamSessionById,
   getJamSessions,
+  getMyJamSessions,
   updateJamSession,
 } from '#controllers/jamSessions';
 import authenticate from '#middleware/authenticate';
@@ -34,6 +35,11 @@ jamSessionRoutes
     validateBody(jamSessionInputSchema),
     createJamSession,
   );
+
+// Above /:id, and it has to stay there. Express matches routes in declaration order, so with this
+// underneath, `/jam-sessions/mine` would be caught by `/:id` and rejected by validateParams as a
+// malformed ObjectId — a 400 on a route that exists, which reads like a client bug and isn't one.
+jamSessionRoutes.route('/mine').get(authenticate, requireRole('venue'), getMyJamSessions);
 
 // validateParams runs for every verb, and here it goes first rather than after authenticate as it
 // does on /users/:id. The difference is that GET is public: there is no identity to establish, so

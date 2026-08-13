@@ -117,6 +117,8 @@ const rooms = [
 type SessionSeed = {
   venue: number;
   room: number;
+  // offset from today. Negative is a night already played and 0 is one happening today — both skip
+  // JS05 when validated, and only JS05; see the loop below for why that is not a licence.
   days: number;
   title: string;
   summary: string;
@@ -129,7 +131,79 @@ type SessionSeed = {
   cancelled?: boolean;
 };
 
+/* The first four are venue 0's, and they are dated the way they are so that one account — ana@ —
+   shows every state the backstage board can be in without logging out: two nights already run, one
+   running today, one called off. Everything after this is in the future, which is what the public
+   browse sees. */
 const sessionSeeds: SessionSeed[] = [
+  {
+    venue: 0,
+    room: 0,
+    days: -23,
+    title: 'Rooftop Summer Jam',
+    summary: 'Long gone — it is here so the board has a night that has already been played.',
+    startTime: '19:00',
+    endTime: '21:00',
+    slotDurationMinutes: 30,
+    instrumentTemplate: [
+      { instrument: 'Guitar', spotsTotal: 2 },
+      { instrument: 'Bass', spotsTotal: 1 },
+      { instrument: 'Drums', spotsTotal: 1 },
+    ],
+    genres: ['funk', 'soul'],
+    skillLevel: ['all-levels'],
+  },
+  {
+    venue: 0,
+    room: 0,
+    days: -6,
+    title: 'Acoustic Corner',
+    summary: 'Also played. Two past nights, so a list of them is not a list of one.',
+    startTime: '18:30',
+    endTime: '20:00',
+    slotDurationMinutes: 30,
+    instrumentTemplate: [
+      { instrument: 'Guitar', spotsTotal: 2 },
+      { instrument: 'Voice', spotsTotal: 2 },
+    ],
+    genres: ['folk'],
+    skillLevel: ['beginner', 'intermediate'],
+  },
+  {
+    venue: 0,
+    room: 1,
+    days: -2,
+    title: 'Called Off Last Week',
+    summary: 'Cancelled and in the past, so the board has to prefer "cancelled" over "past".',
+    startTime: '20:00',
+    endTime: '21:00',
+    slotDurationMinutes: 30,
+    instrumentTemplate: [
+      { instrument: 'Guitar', spotsTotal: 2 },
+      { instrument: 'Keyboard', spotsTotal: 1 },
+    ],
+    genres: ['rock'],
+    skillLevel: ['all-levels'],
+    cancelled: true,
+  },
+  {
+    venue: 0,
+    room: 0,
+    days: 0,
+    title: 'Tonight at the Kellerei',
+    summary: 'Happening today — the one state that cannot be produced by hand, since it lasts a day.',
+    startTime: '20:00',
+    endTime: '22:00',
+    slotDurationMinutes: 30,
+    instrumentTemplate: [
+      { instrument: 'Guitar', spotsTotal: 2 },
+      { instrument: 'Bass', spotsTotal: 1 },
+      { instrument: 'Keyboard', spotsTotal: 1 },
+      { instrument: 'Drums', spotsTotal: 1 },
+    ],
+    genres: ['jazz', 'funk'],
+    skillLevel: ['all-levels'],
+  },
   {
     venue: 0,
     room: 0,
@@ -422,7 +496,21 @@ for (const seed of sessionSeeds) {
   // Through the same schema a real request goes through. Seed data that the API would have rejected
   // is worse than no seed data: it produces a client built against shapes the server cannot
   // actually return, and the mistake surfaces days later.
-  const validated = jamSessionInputSchema.safeParse(candidate);
+  //
+  // With one exception, and only one: JS05 refuses a date in the past, and refuses a start time that
+  // has already gone by today. Both are rules about what a venue may *create*, not about what may
+  // exist — every session becomes a past session eventually, just by time passing. Nights already
+  // run, and a night running right now, are states the venue's own board has to render, and without
+  // this there is no way to produce either in fresh data: the wizard can't create them and neither
+  // can the seed. Worse, a `days: 0` fixture would seed fine in the morning and start failing at
+  // 20:00, which is a script that breaks by the clock.
+  //
+  // So a fixture dated today or earlier is validated against tomorrow, which still runs every other
+  // rule — the time window, the slot arithmetic, the spot ceiling, the instrument list — and stored
+  // with its real date. Nothing else here is allowed past the schema.
+  const validated = jamSessionInputSchema.safeParse(
+    seed.days <= 0 ? { ...candidate, date: inDays(1) } : candidate,
+  );
 
   if (!validated.success) {
     throw new Error(`seed session "${seed.title}" is invalid:\n${z.prettifyError(validated.error)}`);
@@ -432,7 +520,9 @@ for (const seed of sessionSeeds) {
     await JamSession.create({
       ...validated.data,
       venueId: venue._id,
-      date: dateStringToUtcMidnight(validated.data.date),
+      // `candidate`, not `validated.data` — the backdated ones were validated against today, and
+      // this is where their real date goes back in
+      date: dateStringToUtcMidnight(candidate.date),
       // the same generator the controller uses, so seeded slots and real slots cannot differ
       slots: generateSlots(validated.data),
       ...(seed.cancelled ? { status: 'cancelled' } : {}),
@@ -517,10 +607,23 @@ const book = async ({
 };
 
 const jane = must(musicians[0], 'no musicians seeded');
-const wednesday = must(sessions[0], 'no sessions seeded');
-const blues = must(sessions[1], 'no blues session');
-const hinterhof = must(sessions[3], 'no hinterhof session');
-const anythingGoes = must(sessions[8], 'no anything-goes session');
+
+/* By title rather than by position. These were `sessions[0]`, `sessions[1]`, `sessions[3]` and
+   `sessions[8]`, which meant inserting a fixture anywhere above them silently re-pointed every
+   booking below at the wrong night — and the failure lands here, in `book`, as "no spots matched
+   ['Keyboard','First Voice']", which says nothing about the actual cause. The titles are unique and
+   are what the bookings below are really about. */
+const sessionByTitle = (title: string): SeededSession =>
+  must(
+    sessions.find((session) => session.title === title),
+    `no seeded session titled "${title}"`,
+  );
+
+const wednesday = sessionByTitle('Wednesday Night Jam');
+const blues = sessionByTitle('Blues Basement');
+const hinterhof = sessionByTitle('Hinterhof Open Stage');
+const anythingGoes = sessionByTitle('Anything Goes');
+const tonight = sessionByTitle('Tonight at the Kellerei');
 
 // A slot with nothing left, so the client has a sold-out state to build. Split across four
 // musicians, because one person holding all eight spots is not a thing that happens.
@@ -592,6 +695,25 @@ await book({
   slotIndex: 0,
   musician: must(musicians[2], 'no musician 2'),
   labels: ['Keyboard'],
+});
+
+/* Three musicians across four spots on the night that is still cancellable, because the venue's
+   cancel confirmation counts what it is about to take down with it. One of them books two spots
+   under a band name, so the count has a group in it — four bookings, since a booking is per spot,
+   and the client has no way to tell that they are three people. */
+await book({ session: tonight, slotIndex: 0, musician: jane, labels: ['Keyboard'] });
+await book({
+  session: tonight,
+  slotIndex: 0,
+  musician: must(musicians[3], 'no musician 3'),
+  labels: ['First Guitar', 'Bass'],
+  bandName: 'Kellerei Two',
+});
+await book({
+  session: tonight,
+  slotIndex: 1,
+  musician: must(musicians[5], 'no musician 5'),
+  labels: ['Drums'],
 });
 
 const bookingCount = await Booking.countDocuments({ musicianId: { $in: musicians.map((m) => m._id) } });
