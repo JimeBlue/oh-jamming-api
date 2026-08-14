@@ -28,8 +28,9 @@ userRoutes
   .all(authenticate, validateParams(idParamSchema))
   // requireSelf on the read too, not just the writes. Reading an account exposes its email, and
   // "any logged-in user may look up anyone" is a different rule from "any logged-in user may edit
-  // only themselves" — there is no caller that needs the first one. What a venue is allowed to know
-  // about a musician it has a booking with comes from GET /bookings instead (BK18).
+  // only themselves" — there is no caller that needs the first one. A venue does get the email of a
+  // musician playing at its night, but from GET /bookings, where the booking is what justifies it
+  // (BK18) — never by asking for an account it has no relationship with.
   .get(requireSelf, getUserById)
   // requireSelf before validateBody: no point parsing a body the caller isn't allowed to submit
   .patch(requireSelf, validateBody(updateUserSchema), updateUser)

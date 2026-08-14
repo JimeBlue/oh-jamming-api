@@ -165,7 +165,7 @@ Three guards, composed in this order:
 
 On `/users/:id`, `authenticate` runs *before* `validateParams` so an anonymous caller learns nothing about the id they sent.
 
-**There is no `GET /users`, and `requireSelf` guards `GET /users/:id` as well as the writes.** Accounts are not browsable. An index route existed once and was removed: it returned every user through `userOutputSchema`, which includes `email`, to any authenticated caller — so registering as a musician got you every account on the platform. Nothing needs it, because a venue learns who booked its night from `GET /bookings`, where BK18 limits the musician to a name. Do not add one back without a narrower output schema; `userOutputSchema` carries `email` precisely because it is only ever used on the caller's own account.
+**There is no `GET /users`, and `requireSelf` guards `GET /users/:id` as well as the writes.** Accounts are not browsable. An index route existed once and was removed: it returned every user through `userOutputSchema`, which includes `email`, to any authenticated caller — so registering as a musician got you every account on the platform. Nothing needs it, because a venue learns who booked its night from `GET /bookings`, where BK18 gives it a name and an email for the musicians who booked *that venue's* session — contact details earned by a booking, never by a lookup. Do not add one back without a narrower output schema; `userOutputSchema` carries `email` precisely because it is only ever used on the caller's own account.
 
 `req.user` is typed by the global augmentation in `src/types/express.d.ts`, which also owns the `AuthPayload` type — `utils/jwt.ts` imports it from there rather than redeclaring it.
 
@@ -293,8 +293,9 @@ The rest of what shapes the implementation:
   `idParamSchema` would reject every valid one.
 - **`bookingDetailOutputSchema` renames while it parses.** `.populate()` replaces the value at the
   same path, so a populated session arrives under the key `jamSessionId`; a `.transform()` emits it
-  as `jamSession` and `musicianId` as `musician`. BK18 is the populate *projection* — there is no
-  email on the document for the schema to have to remember to drop.
+  as `jamSession` and `musicianId` as `musician`. BK18 is the populate *projection* — the musician
+  arrives as a name and an email and nothing else, so what the schema declares is all there ever was
+  to declare.
 - **`authenticate` is mounted on the whole booking router**, unlike the other two. Nothing here is
   public, so there is no route it can be omitted from by accident.
 - **`GET /bookings` is one endpoint for both roles** — a musician's own bookings, a venue's sessions'

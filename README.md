@@ -139,7 +139,8 @@ in the client. `role` is fixed at registration and cannot be changed through `PA
 **There is no `GET /users`, and `/users/:id` is your own account only.** Accounts are not browsable:
 an index route would hand any logged-in caller every email address on the platform, and nothing in
 the app needs one. What a venue is allowed to know about a musician who booked its night comes from
-`GET /bookings` — a name, and nothing else.
+`GET /bookings` — a name and an email, so it can reach the people turning up. The booking is what
+grants that: there is no route anywhere that resolves a stranger's name into an account.
 
 ## Jam sessions
 

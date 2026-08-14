@@ -155,12 +155,19 @@ const jamSessionSummarySchema = z.object({
   status: z.string(),
 });
 
-// BK18 — name only. A venue reading the bookings on its own session has no business seeing the
-// musician's email, so the projection is the enforcement rather than a promise the controller makes.
+// BK18 — how to reach the people playing at your night, and nothing more. The controller's populate
+// projection is the enforcement rather than a promise made here: a field that was never selected
+// cannot be returned by this schema whatever it declares.
+//
+// The email is deliberate. A venue that has to call a night off, or move a slot, otherwise has no
+// way to tell anyone who signed up — and everyone in this list chose to book that venue's session.
+// What the rule still prevents is turning a name into an account: `GET /users/:id` is self-only and
+// there is no users index, so nothing here reaches a musician the caller has no booking with.
 const musicianSummarySchema = z.object({
   id: z.string(),
   firstName: z.string(),
   lastName: z.string(),
+  email: z.string(),
 });
 
 // What the read endpoints return. `.populate()` replaces the value *at the same path*, so mongoose

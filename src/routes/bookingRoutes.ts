@@ -18,9 +18,9 @@ const bookingRoutes = Router();
 
 // BK17 — nothing here is public, which is what makes this router different from the other two.
 // Jam sessions are the product and are browsable by anyone; a booking says who is playing what and
-// when, and the only people with a claim to that are the musician who made it and the venue running
-// the night. So `authenticate` is mounted once for the whole router rather than repeated per verb —
-// there is no route it could be left off by accident.
+// when, and carries their email besides (BK18), and the only people with a claim to that are the
+// musician who made it and the venue running the night. So `authenticate` is mounted once for the
+// whole router rather than repeated per verb — there is no route it could be left off by accident.
 bookingRoutes.use(authenticate);
 
 bookingRoutes

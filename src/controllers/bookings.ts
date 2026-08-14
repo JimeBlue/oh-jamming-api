@@ -25,9 +25,21 @@ import { nowInAppTimezone, utcMidnightToDateString } from '#utils/time';
 // draw a single row.
 const POPULATE = [
   { path: 'jamSessionId', select: 'title date venueName status' },
-  // BK18 — name only. The projection *is* the rule: there is no email on the populated document for
-  // the output schema to have to remember to drop.
-  { path: 'musicianId', select: 'firstName lastName' },
+  // BK18 — name and email, and nothing else. The projection *is* the rule: whatever is not selected
+  // here cannot be leaked by a careless render, because it never leaves the database.
+  //
+  // The email is here because the alternative was worse than the risk. A venue cancelling a night at
+  // short notice, or moving a slot, had no way to tell the people who had signed up for it — and
+  // "who do I contact?" is the whole reason a guest list exists. Every account this returns belongs
+  // to somebody who chose to book *this venue's* night, which is what makes it a relationship rather
+  // than a lookup.
+  //
+  // What BK18 still protects is the other direction: there is no route that turns a name into an
+  // account. `GET /users/:id` is `requireSelf`, and there is no users index, so a venue cannot read
+  // the address of anyone it has no booking with. The filter on this route composes with the
+  // ownership scope rather than replacing it, so it cannot be pointed at another venue's roster
+  // either. Contact details for your own guests, and no directory.
+  { path: 'musicianId', select: 'firstName lastName email' },
 ];
 
 // Soonest gig first, matching `getJamSessions`. The sort has to happen after parsing rather than in
