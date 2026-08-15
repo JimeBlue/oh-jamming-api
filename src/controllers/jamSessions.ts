@@ -28,13 +28,17 @@ type JamSessionOutputDTO = z.infer<typeof jamSessionOutputSchema>;
 // venue name on it at all. Two things fall out of that: the browse never touches the users
 // collection, and a musician reading a session can never be shown a venue's email address.
 
+// Hand-written rather than `RegExp.escape`, which exists on this Node but needs the ES2025 lib to
+// be visible to tsc — a tsconfig change is a lot to spend on one line.
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export const getJamSessions: RequestHandler<
   unknown,
   JamSessionOutputDTO[],
   unknown,
   JamSessionQuery
 > = async (req, res) => {
-  const { genre, skillLevel, status, venueId, from, to } = req.query;
+  const { genre, skillLevel, status, venueId, city, from, to } = req.query;
 
   // JS13 — the browse answers "what can I still turn up to?", so it starts at today unless the
   // caller asks for a range explicitly. That is how a venue reviews the nights it has already run.
@@ -57,6 +61,11 @@ export const getJamSessions: RequestHandler<
   if (genre) filter.genres = { $in: [genre, ALL_GENRES] };
   if (skillLevel) filter.skillLevel = { $in: [skillLevel, ALL_LEVELS] };
   if (venueId) filter.venueId = venueId;
+
+  // Escaped before it becomes a pattern. Everything else here is an enum or an ObjectId; this is the
+  // one filter that takes free text from the query string, and handing that to `new RegExp`
+  // unescaped is either a 500 on a stray bracket or a request that never returns on a crafted one.
+  if (city) filter['address.formatted'] = new RegExp(escapeRegex(city), 'i');
 
   // soonest first, and within a day the earlier start first — `startTime` is "HH:mm", which sorts
   // lexicographically in the same order it sorts chronologically

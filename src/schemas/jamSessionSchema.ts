@@ -332,6 +332,18 @@ export const jamSessionQuerySchema = z
 
     venueId: z.string().refine(isValidObjectId, 'must be a valid id').optional(),
 
+    // A substring of the address, not a field of it. `address` is a single free-text `formatted`
+    // line — there is no city on the model — so this is matched with a case-insensitive regex over
+    // the whole line, which finds "Berlin" in "Torstraße 1, 10119 Berlin" and equally finds it in a
+    // street called Berliner Allee. That imprecision is the deal: a real city field means changing
+    // the address shape, the wizard's geocoding step and every session already stored, and the
+    // filter is worth having before that is worth doing.
+    //
+    // Bounded at 60 because it goes into a RegExp. The controller escapes it — an unescaped `(((`
+    // from a query string is a crash, and an unescaped `(a+)+$` is a CPU pinned for the afternoon —
+    // and a short cap is the second half of that defence.
+    city: z.string().trim().min(2, 'min length is 2 chars').max(60, 'max length is 60 chars').optional(),
+
     // JS13 — `from` omitted means "today onwards". Passing it explicitly is how a venue looks at
     // its own past nights.
     from: z.iso.date('must be a date in YYYY-MM-DD format').optional(),

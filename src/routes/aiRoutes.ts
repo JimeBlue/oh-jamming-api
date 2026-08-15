@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { generateOverview, generateSummary } from '#controllers/ai';
+import { generateOverview, generateSummary, searchJamSessions } from '#controllers/ai';
 import aiLimiter from '#middleware/aiLimiter';
+import aiSearchLimiter from '#middleware/aiSearchLimiter';
 import authenticate from '#middleware/authenticate';
 import requireRole from '#middleware/requireRole';
 import validateBody from '#middleware/validateBody';
-import { notesPromptSchema } from '#schemas/aiSchema';
+import { notesPromptSchema, searchPromptSchema } from '#schemas/aiSchema';
 
 const aiRoutes = Router();
 
@@ -41,5 +42,19 @@ aiRoutes.post(
   validateBody(notesPromptSchema),
   generateSummary,
 );
+
+// No `authenticate`, and no `requireRole` — the only route on this router without them, which is
+// worth stating rather than leaving to be noticed. The browse it feeds is public: a musician has to
+// be able to search before deciding whether to sign up, and a search box that demands an account is
+// a search box nobody uses. Its own limiter follows from that, see the note in aiSearchLimiter.
+//
+// POST rather than GET despite reading nothing, because the query is a body: a sentence in a URL is
+// a sentence in every access log and every referrer header, and `?query=` is also the shape that
+// invites the client to cache or bookmark a reading that is only valid for today.
+//
+// This route creates nothing. What comes back is the filters for `GET /jam-sessions`, which the
+// client then calls itself — the search never touches the database, so there is exactly one place
+// that knows how the browse is filtered and sorted.
+aiRoutes.post('/search', aiSearchLimiter, validateBody(searchPromptSchema), searchJamSessions);
 
 export default aiRoutes;
