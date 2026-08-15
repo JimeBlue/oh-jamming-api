@@ -73,6 +73,24 @@ export const groupIdParamSchema = z.object({
 
 export type GroupIdParams = z.infer<typeof groupIdParamSchema>;
 
+// ---------------------------------------------------------------------------------------------
+// Query
+// ---------------------------------------------------------------------------------------------
+
+// A strictObject, like the jam session query: `?jamSession=abc` would otherwise be ignored and
+// return every booking the caller can see, and a filter that quietly does nothing is a worse bug
+// than one that says it doesn't recognise the parameter — here especially, since the unfiltered
+// answer looks plausible right up until it doesn't.
+//
+// Deliberately not a `status` filter as well. Cancelled bookings are the record of who dropped out,
+// so both readers want them in the list rather than filtered away, and `status` is already on every
+// row for the client to split on.
+export const bookingQuerySchema = z.strictObject({
+  jamSessionId: z.string().refine(isValidObjectId, 'must be a valid id').optional(),
+});
+
+export type BookingQuery = z.infer<typeof bookingQuerySchema>;
+
 // No update schema. BK15 is deferred: there is no PATCH /bookings/:id, because the only thing it
 // would have edited is `bandName`. Dropping one instrument is cancelling one booking document, and
 // moving to another slot is cancel + rebook — a spot can only ever be acquired through the atomic
@@ -137,12 +155,19 @@ const jamSessionSummarySchema = z.object({
   status: z.string(),
 });
 
-// BK18 — name only. A venue reading the bookings on its own session has no business seeing the
-// musician's email, so the projection is the enforcement rather than a promise the controller makes.
+// BK18 — how to reach the people playing at your night, and nothing more. The controller's populate
+// projection is the enforcement rather than a promise made here: a field that was never selected
+// cannot be returned by this schema whatever it declares.
+//
+// The email is deliberate. A venue that has to call a night off, or move a slot, otherwise has no
+// way to tell anyone who signed up — and everyone in this list chose to book that venue's session.
+// What the rule still prevents is turning a name into an account: `GET /users/:id` is self-only and
+// there is no users index, so nothing here reaches a musician the caller has no booking with.
 const musicianSummarySchema = z.object({
   id: z.string(),
   firstName: z.string(),
   lastName: z.string(),
+  email: z.string(),
 });
 
 // What the read endpoints return. `.populate()` replaces the value *at the same path*, so mongoose

@@ -17,10 +17,11 @@ type UserOutputDTO = z.infer<typeof userOutputSchema>;
 
 
 // There is deliberately no `getUsers`. Listing every account is not something any part of this app
-// needs: a venue learns who is playing at its night from `GET /bookings`, which gives it a
-// musician's name and nothing else (BK18), and the venue's own public identity lives on the jam
-// session rather than on its user record. An index route would only have existed to hand any logged
-// in caller every email address on the platform, which is exactly the thing BK18 is careful about.
+// needs: a venue learns who is playing at its night from `GET /bookings`, which gives it a name and
+// an email for the people who booked *that venue's* session (BK18), and the venue's own public
+// identity lives on the jam session rather than on its user record. An index route would only have
+// existed to hand any logged in caller every email address on the platform — which is the line BK18
+// draws, and the reason it grants contact details through a booking rather than through a lookup.
 //
 // If a users index is ever genuinely needed, it needs its own narrower output schema — the one
 // below includes `email` because it is only ever used on the caller's own account.
