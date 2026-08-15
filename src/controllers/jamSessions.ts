@@ -74,6 +74,63 @@ export const getJamSessions: RequestHandler<
   res.json(jamSessions.map((jamSession) => jamSessionOutputSchema.parse(jamSession)));
 };
 
+/* "Königstraße 93, 90402 Nürnberg" -> "Nürnberg".
+ *
+ * A heuristic over free text, and it has to be, because there is no city on the model — the address
+ * is one `formatted` line, which is what the browse's `?city=` matches a substring of. This is the
+ * same limitation seen from the other end: the filter can match a city it cannot name, so naming
+ * them means reading them back out of the line.
+ *
+ * The postcode is the anchor. Every address the geocoder returns puts the city immediately after a
+ * four- or five-digit postcode in its own comma-separated part, and a trailing country part may or
+ * may not follow — so this looks for that part rather than counting from either end, which would
+ * pick "Germany" off half of them.
+ *
+ * Null when nothing matches, and the caller drops it. An address typed by hand that this can't read
+ * is one missing option in a dropdown; guessing at it would be a wrong option in a dropdown, which
+ * is worse — it filters to nothing and looks like there are no sessions rather than like a bad
+ * parse.
+ */
+const cityFromAddress = (formatted: string): string | null => {
+  for (const part of formatted.split(',')) {
+    const match = /^\s*\d{4,5}\s+(.+?)\s*$/.exec(part);
+
+    if (match?.[1]) return match[1];
+  }
+
+  return null;
+};
+
+/* The cities the browse's city filter can actually find something in.
+ *
+ * Its own endpoint because the alternative is circular: a dropdown built from the sessions
+ * currently on screen loses every other city the moment one is chosen, so choosing Berlin makes
+ * Leipzig unselectable. The list has to come from outside whatever is being filtered.
+ *
+ * Scoped to active sessions from today onwards, matching the browse's own defaults (JS12/JS13),
+ * because a city with nothing coming up is an option that can only disappoint — every entry here is
+ * a filter that returns at least one night.
+ *
+ * `distinct` rather than an aggregation: the parsing above is a regex per address and Mongo is a bad
+ * place to keep a regex nobody can read, while the number of distinct addresses is the number of
+ * rooms on the platform — small, and bounded by the same thing that bounds the browse.
+ */
+export const getJamSessionCities: RequestHandler<unknown, string[]> = async (req, res) => {
+  const addresses = await JamSession.distinct('address.formatted', {
+    status: 'active',
+    date: { $gte: dateStringToUtcMidnight(nowInAppTimezone().date) },
+  });
+
+  const cities = addresses
+    .map((address: string) => cityFromAddress(address))
+    .filter((city): city is string => city !== null);
+
+  // Deduplicated after parsing, not before: two rooms in the same city are two addresses and one
+  // option. Sorted with a locale collator so "Nürnberg" files under N rather than after Z, which is
+  // where a plain string sort puts every umlaut.
+  res.json([...new Set(cities)].sort((a, b) => a.localeCompare(b, 'de')));
+};
+
 // A venue's own board, and deliberately not `GET /?venueId=me`. The browse above answers a
 // musician's question — "what can I still turn up to?" — and every default it has is shaped by that:
 // active only, today onwards. A venue looking at its own sessions wants the opposite of both, and

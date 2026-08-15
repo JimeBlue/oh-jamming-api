@@ -3,6 +3,7 @@ import {
   cancelJamSession,
   createJamSession,
   getJamSessionById,
+  getJamSessionCities,
   getJamSessions,
   getMyJamSessions,
   updateJamSession,
@@ -40,6 +41,11 @@ jamSessionRoutes
 // underneath, `/jam-sessions/mine` would be caught by `/:id` and rejected by validateParams as a
 // malformed ObjectId — a 400 on a route that exists, which reads like a client bug and isn't one.
 jamSessionRoutes.route('/mine').get(authenticate, requireRole('venue'), getMyJamSessions);
+
+// Above /:id for the same reason as /mine, and public for the same reason as the browse: it feeds
+// the browse's own city filter, which anonymous visitors use. No query of its own — it answers one
+// question and takes no arguments, so there is nothing to validate.
+jamSessionRoutes.route('/cities').get(getJamSessionCities);
 
 // validateParams runs for every verb, and here it goes first rather than after authenticate as it
 // does on /users/:id. The difference is that GET is public: there is no identity to establish, so
