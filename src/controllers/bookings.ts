@@ -24,7 +24,10 @@ import { nowInAppTimezone, utcMidnightToDateString } from '#utils/time';
 // name live in other collections, and without them neither "My bookings" nor a venue's roster can
 // draw a single row.
 const POPULATE = [
-  { path: 'jamSessionId', select: 'title date venueName status' },
+  // `address` is here for the musician's own list, which shows where to turn up. It is not a
+  // widening of what a booking exposes: the session is public and browsable by anyone, address
+  // included, so this only saves the client a second request for something it could already read.
+  { path: 'jamSessionId', select: 'title date venueName status address' },
   // BK18 — name and email, and nothing else. The projection *is* the rule: whatever is not selected
   // here cannot be leaked by a careless render, because it never leaves the database.
   //

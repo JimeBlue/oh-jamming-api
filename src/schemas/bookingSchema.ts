@@ -153,6 +153,10 @@ const jamSessionSummarySchema = z.object({
   date: z.date(),
   venueName: z.string(),
   status: z.string(),
+  // Only `formatted` — the one line the venue actually typed. `lat`/`lng` exist on the stored
+  // address and are left out here because nothing on a booking draws a map, and a projection that
+  // returns them anyway is a projection nobody is reading.
+  address: z.object({ formatted: z.string() }),
 });
 
 // BK18 — how to reach the people playing at your night, and nothing more. The controller's populate
