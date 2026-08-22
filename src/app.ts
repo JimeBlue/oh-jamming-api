@@ -3,7 +3,7 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
-import { CLIENT_URL, PORT } from './config.ts';
+import { allowedOrigins, isPreviewOrigin, PORT } from './config.ts';
 import connectDB from './db/index.ts';
 import errorHandler from './middleware/errorHandler.ts';
 import notFoundHandler from './middleware/notFoundHandler.ts';
@@ -21,16 +21,23 @@ const app = express();
 // rate limiter would count all users as one client. 1 = trust exactly one proxy hop.
 app.set('trust proxy', 1);
 
-// the deployed client plus local dev; credentials are needed for the auth cookies
-const allowedOrigins = [CLIENT_URL, 'http://localhost:3000'].filter(
-  (origin): origin is string => Boolean(origin)
-);
-
 // middleware
 app.use(helmet());
 app.use(
   cors({
-    origin: allowedOrigins,
+    /* A function rather than the array it used to be, because one of the origins can't be written
+       down in advance: every Vercel preview deployment gets its own hostname. The named origins —
+       the deployed client, or several of them mid-move, plus local dev — still come from
+       CLIENT_URL; `isPreviewOrigin` covers the rest.
+
+       No Origin header means no browser: curl, Render's health check, anything server-to-server.
+       Those were never the thing CORS protects, and refusing them here would take the health check
+       down with them. */
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      callback(null, allowedOrigins.includes(origin) || isPreviewOrigin(origin));
+    },
     credentials: true,
     // the browser hides response headers from JS unless they're listed here, and the client needs
     // to read this one to tell an expired access token apart from a dead session
