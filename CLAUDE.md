@@ -228,6 +228,24 @@ ones that shape the implementation rather than just validating a field:
   changes the update is merged over the stored document and the whole thing re-run through
   `jamSessionInputSchema`. This runs *only* when a shape field changed — re-validating a title edit
   would re-run the past-date rule and reject a typo fix on a session happening tonight.
+- **`GET /jam-sessions` is the one paginated list, and the only one returning a wrapper**:
+  `{ items, total, page, limit }` rather than a bare array. `total` counts everything matching the
+  filter, because how many pages there are is unanswerable from a page. `/mine`, `/cities` and
+  `/:id` are unchanged — a venue's own board is bounded by one venue's output, and paging it would
+  be ceremony. There is no way to ask for every session at once any more: `limit` is capped at
+  `MAX_PAGE_SIZE`, and omitting it gives the first `DEFAULT_PAGE_SIZE`.
+- **The browse's sort ends in `_id`, and that is a correctness fix, not a tidy-up.** `date` +
+  `startTime` is not unique — two sessions on the same night at the same hour have no order between
+  them, and Mongo decides independently for the `skip(0)` query and the `skip(12)` one. Without the
+  tiebreaker a session appears on page 1 *and* page 2 while another appears on neither.
+- **`page` and `limit` are `.optional()` in the query schema, defaulted in the controller** — the
+  one place in this codebase where `.default()` would have been the obvious call and is wrong. The
+  schema's inferred type is also what `ai.ts` builds from a musician's sentence, and a search for
+  "jazz in Berlin" has no opinion about a page. `.default()` would make paging required on a type
+  that is about filtering.
+- **A page past the end is an empty `items` with a real `total`, not a 404.** The filter matched;
+  there is simply nothing that far in, and the total is what puts the client back on a page that
+  exists. `/jam-sessions/:id` keeps 404 for its own, different meaning.
 - **The catch-all tags match every filter** (JS15): `?genre=jazz` matches `all-genres` sessions too,
   via `$in: [genre, ALL_GENRES]`. Exact matching would make a venue that welcomed everyone findable
   by nobody.
