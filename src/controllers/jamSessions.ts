@@ -7,6 +7,8 @@ import type { IdParams } from '#schemas/idParamSchema';
 import {
   ALL_GENRES,
   ALL_LEVELS,
+  DEFAULT_PAGE_SIZE,
+  type JamSessionPageOutput,
   type JamSessionQuery,
   type UpdateJamSessionInput,
   jamSessionInputSchema,
@@ -34,11 +36,17 @@ const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]
 
 export const getJamSessions: RequestHandler<
   unknown,
-  JamSessionOutputDTO[],
+  JamSessionPageOutput,
   unknown,
   JamSessionQuery
 > = async (req, res) => {
   const { genre, skillLevel, status, venueId, city, from, to } = req.query;
+
+  // The bounds are the schema's — a value that arrived is already validated, so these only fill in
+  // the absent case. Omitting both is the first page, not the whole board: there is no longer a way
+  // to ask this endpoint for every session at once, which is the point of the cap.
+  const page = req.query.page ?? 1;
+  const limit = req.query.limit ?? DEFAULT_PAGE_SIZE;
 
   // JS13 — the browse answers "what can I still turn up to?", so it starts at today unless the
   // caller asks for a range explicitly. That is how a venue reviews the nights it has already run.
@@ -67,11 +75,41 @@ export const getJamSessions: RequestHandler<
   // unescaped is either a 500 on a stray bracket or a request that never returns on a crafted one.
   if (city) filter['address.formatted'] = new RegExp(escapeRegex(city), 'i');
 
-  // soonest first, and within a day the earlier start first — `startTime` is "HH:mm", which sorts
-  // lexicographically in the same order it sorts chronologically
-  const jamSessions = await JamSession.find(filter).sort({ date: 1, startTime: 1 });
+  /* Soonest first, and within a day the earlier start first — `startTime` is "HH:mm", which sorts
+     lexicographically in the same order it sorts chronologically.
 
-  res.json(jamSessions.map((jamSession) => jamSessionOutputSchema.parse(jamSession)));
+     `_id` is the tiebreaker, and it stopped being cosmetic the moment this endpoint grew pages.
+     Two sessions on the same night at the same hour have no order between them under the first two
+     keys, so Mongo is free to return them either way round — and it decides separately for the
+     `skip(0)` query and the `skip(12)` one. That is how the same session appears on page 1 and
+     again on page 2 while another appears on neither. `_id` is unique, so adding it last makes the
+     order total without changing what the first two keys decide. */
+  const sort = { date: 1, startTime: 1, _id: 1 } as const;
+
+  /* Both against the same filter, in parallel — they are independent queries and running them in
+     series would put the count's round trip on top of the find's for no reason.
+
+     The count is what makes a pager possible at all: `items.length` is at most `limit`, so a full
+     page cannot tell you whether it is the last one. It is deliberately unfiltered by page — it
+     counts everything matching, which is the number the buttons are drawn from. */
+  const [jamSessions, total] = await Promise.all([
+    JamSession.find(filter)
+      .sort(sort)
+      .skip((page - 1) * limit)
+      .limit(limit),
+    JamSession.countDocuments(filter),
+  ]);
+
+  /* A page past the end is an empty `items` with a real `total`, not a 404. Nothing is missing —
+     the filter matched, there is simply nothing that far in — and the total is what lets the client
+     put the musician back on a page that exists. A 404 would say the opposite: that the request was
+     for something that doesn't exist, which is what `/jam-sessions/:id` means by it. */
+  res.json({
+    items: jamSessions.map((jamSession) => jamSessionOutputSchema.parse(jamSession)),
+    total,
+    page,
+    limit,
+  });
 };
 
 /* "Königstraße 93, 90402 Nürnberg" -> "Nürnberg".

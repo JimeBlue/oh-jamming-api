@@ -316,12 +316,21 @@ export type UpdateJamSessionInput = z.infer<typeof updateJamSessionSchema>;
 // Query
 // ---------------------------------------------------------------------------------------------
 
+// A page of the browse, 12 at a time. The grid is four across at `xl` and three at `lg`, so twelve
+// is the one size that fills both without a ragged last row.
+export const DEFAULT_PAGE_SIZE = 12;
+
+// The cap exists because `limit` is a number from a query string. Without it `?limit=999999` is the
+// unpaginated query with extra steps — every session on the platform, serialised with its whole
+// `slots` array, from a public endpoint nobody has to log in to reach.
+export const MAX_PAGE_SIZE = 48;
+
 // The browse filters. A strictObject here too, which matters more than it looks: `?genr=jazz` would
 // otherwise be silently ignored and return every session, and a filter that quietly does nothing is
 // a much worse bug than one that says it doesn't recognise the parameter.
 //
-// Every value arrives as a string, so nothing needs coercing — the enums and `z.iso.date()` all
-// parse strings already.
+// The filters below need no coercing — the enums and `z.iso.date()` all parse strings already. The
+// two paging fields are the exception, and are the only reason `z.coerce` appears in this file.
 export const jamSessionQuerySchema = z
   .strictObject({
     genre: z.enum(genres, 'unknown genre').optional(),
@@ -348,6 +357,32 @@ export const jamSessionQuerySchema = z
     // its own past nights.
     from: z.iso.date('must be a date in YYYY-MM-DD format').optional(),
     to: z.iso.date('must be a date in YYYY-MM-DD format').optional(),
+
+    // 1-based, because it is the number drawn on the button. Converting to a 0-based offset is one
+    // multiplication in the controller; explaining to whoever writes the next client why page one
+    // is `?page=0` is forever.
+    //
+    // Optional, with the defaults applied in the controller rather than by `.default()` here. That
+    // is the opposite of the usual advice and it is deliberate: this schema's inferred type is also
+    // what `ai.ts` builds when the model reads a sentence into filters, and a search for "jazz in
+    // Berlin" has no opinion about which page of the results the musician wants. Defaulting here
+    // would make `page` and `limit` required on every one of those objects — paging leaking into a
+    // type that is about filtering.
+    page: z.coerce
+      .number('must be a number')
+      .int('must be a whole number')
+      .min(1, 'must be at least 1')
+      .optional(),
+
+    // `.max()` rather than a silent clamp. A clamp would answer `?limit=1000` with 48 items and no
+    // indication that it had ignored the question, which reads to the caller as "there are only 48"
+    // — the same class of quiet lie the strictObject above exists to prevent.
+    limit: z.coerce
+      .number('must be a number')
+      .int('must be a whole number')
+      .min(1, 'must be at least 1')
+      .max(MAX_PAGE_SIZE, `max is ${MAX_PAGE_SIZE}`)
+      .optional(),
   })
   .refine(({ from, to }) => !from || !to || from <= to, {
     error: 'to must not be earlier than from',
@@ -433,3 +468,22 @@ export const jamSessionOutputSchema = z.object({
 });
 
 export type JamSessionOutput = z.infer<typeof jamSessionOutputSchema>;
+
+/* What `GET /jam-sessions` returns: one page, plus what the caller needs to draw a pager.
+ *
+ * A hand-written type rather than a Zod schema, which is the one place in this file that breaks the
+ * pattern. Every other output shape is a schema because it parses a mongoose document on the way
+ * out — this one wraps values the controller has already parsed, and running `items` through a
+ * second `z.array(jamSessionOutputSchema)` would re-validate the whole page to prove nothing.
+ *
+ * `total` is the count of everything matching the filter, not the length of `items`, and it is the
+ * only reason this is an object at all: how many pages there are is unanswerable from a page.
+ * `page` and `limit` are echoed back so the client renders what the server actually did rather than
+ * what it asked for — they differ whenever a default filled one in.
+ */
+export type JamSessionPageOutput = {
+  items: JamSessionOutput[];
+  total: number;
+  page: number;
+  limit: number;
+};
