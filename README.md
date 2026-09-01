@@ -1,9 +1,47 @@
 # Oh Jamming — API
 
-Backend for **Oh Jamming**, a web app for booking a spot in a jam session.
+**Open jam nights are hard to find, and harder to run.** A musician who wants to play tonight is
+reduced to searching Instagram posts and hoping the lineup isn't full. The venue hosting the night
+is running it off a clipboard by the door — no idea who's coming, which instruments are covered, or
+whether anyone signed up for the 22:00 slot at all.
 
-Venues post jam sessions with time slots and the instruments they need. Musicians browse
-sessions and book individual instrument spots — solo or as a band in one submission.
+This is the backend that gives both sides the same board. Venues post nights broken into time slots
+with a set number of spots per instrument; musicians browse what's on and claim individual spots,
+solo or as a band in one submission. **Availability is per spot, so there is no counter to fall out
+of step with reality.**
+
+**Base URL:** https://oh-jamming-api.onrender.com
+**Client repo:** [JimeBlue/oh-jamming-client](https://github.com/JimeBlue/oh-jamming-client)
+**Live app:** https://oh-jamming-client.vercel.app
+
+## Try it
+
+Browsing needs no account:
+
+```bash
+curl https://oh-jamming-api.onrender.com/jam-sessions
+```
+
+Everything else does. Two seeded accounts, one for each role — the API is role-gated, so most of
+what it does is behind a login:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Venue | `ana@ohjamming.demo` | `demopassword` |
+| Musician | `jane@ohjamming.demo` | `demopassword` |
+
+The session is two `httpOnly` cookies, so a login has to be made with a cookie jar:
+
+```bash
+curl -c jar.txt -X POST https://oh-jamming-api.onrender.com/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"jane@ohjamming.demo","password":"demopassword"}'
+
+curl -b jar.txt https://oh-jamming-api.onrender.com/bookings
+```
+
+The demo data is shared and live, so anything you create or cancel is visible to the next person who
+looks.
 
 ## Tech stack
 
@@ -64,8 +102,8 @@ value stops the process at startup rather than surfacing as an `undefined` at th
 `npm run seed` fills the database with 4 venues, 8 musicians and 44 jam sessions — 20 recurring
 nights, each repeating the way a real one does — plus a set of existing bookings, including a slot
 with every spot taken, a partly booked slot, a band booking sharing one `groupId`, and a cancelled
-booking. Every account uses the password `demopassword`; log in as `jane@ohjamming.demo` for the
-fullest "My bookings", or `ana@ohjamming.demo` to see the venue side.
+booking. Every account uses the password `demopassword` — see [Try it](#try-it) for the two worth
+starting from.
 
 Session dates are generated relative to the day you run it, so the seeded nights are always
 upcoming. It is safe to re-run — that is the point, since developing against the booking flow fills
@@ -356,3 +394,26 @@ Three collections:
 - **Users** — venue or musician (one role per account)
 - **JamSessions** — session details, with embedded time slots and individually bookable spots
 - **Bookings** — one document per claimed spot; a band booking shares one `groupId`
+
+## Roadmap
+
+Deliberately out of scope for the first release, in the order I'd build them.
+
+- **`PATCH /bookings/:id`.** There is no endpoint that modifies a booking, so the client reschedules
+  by cancelling the group and booking the new slot — which works, and isn't atomic. One endpoint
+  that moves a claim from one spot to another under the same guarantee as the create would replace
+  the whole dance, and would let the client stop hiding a tombstone.
+- **A stats endpoint.** The client's home page counts open spots by walking the whole board over the
+  network. Fine at forty sessions, indefensible at four hundred — it is one aggregation.
+- **`roles` as a set, not `role` as a field.** Role is fixed at registration and read by
+  `requireRole` on every write, so a venue owner who also plays needs two accounts. Eventbrite and
+  Airbnb answer this with a mode switch rather than a second login; here that is a migration and a
+  change to what the access token carries, not a client change.
+- **Door scanning.** Bookings already carry an opaque `qrCode`; nothing verifies one yet. It wants a
+  route that answers "is this code good for tonight, at this venue" without exposing the booking to
+  anyone holding the string.
+- **Recurring nights as data.** The seed builds 44 sessions from 20 night concepts because that is
+  how venues actually run them — every second Monday — but the API has no notion of a series, so a
+  venue publishes each one by hand.
+- **Email on cancellation.** `DELETE /jam-sessions/:id` cancels every booking on the night, and the
+  only way a musician finds out is by opening the app.
